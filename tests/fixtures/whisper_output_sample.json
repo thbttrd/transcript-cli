@@ -1,0 +1,32 @@
+{
+  "systeminfo": "fake",
+  "model": {"type": "large-v3", "multilingual": true},
+  "params": {"model": "ggml-large-v3.bin", "language": "fr"},
+  "result": {"language": "fr"},
+  "transcription": [
+    {
+      "timestamps": {"from": "00:00:00,000", "to": "00:00:01,000"},
+      "offsets": {"from": 0, "to": 1000},
+      "text": " Bonjour",
+      "tokens": [
+        {"text": " Bonjour", "offsets": {"from": 0, "to": 1000}, "id": 1234}
+      ]
+    },
+    {
+      "timestamps": {"from": "00:00:01,000", "to": "00:00:02,000"},
+      "offsets": {"from": 1000, "to": 2000},
+      "text": " monde",
+      "tokens": [
+        {"text": " monde", "offsets": {"from": 1000, "to": 2000}, "id": 5678}
+      ]
+    },
+    {
+      "timestamps": {"from": "00:00:02,000", "to": "00:00:02,500"},
+      "offsets": {"from": 2000, "to": 2500},
+      "text": "[_BEG_]",
+      "tokens": [
+        {"text": "[_BEG_]", "offsets": {"from": 2000, "to": 2500}, "id": 50360}
+      ]
+    }
+  ]
+}
