@@ -18,5 +18,17 @@ def test_get_md_supports_with_timestamps_kwarg():
 
     fn = get("md")
     meta = Meta(filename="v", duration=1.0, model="m", language="fr", speaker_count=1)
-    out = fn([Utterance(speaker="A", start=0.0, end=1.0, text="hi")], meta, with_timestamps=False)
-    assert "[00:00]" not in out
+    utts = [Utterance(speaker="A", start=0.0, end=1.0, text="hi")]
+    out_no = fn(utts, meta, with_timestamps=False)
+    assert "[00:00]" not in out_no
+    out_yes = fn(utts, meta, with_timestamps=True)
+    assert "[00:00]" in out_yes
+
+
+@pytest.mark.parametrize("name", ["json", "srt", "txt"])
+def test_get_non_md_formatters_reject_with_timestamps(name):
+    from transcript.models import Meta
+
+    meta = Meta(filename="v", duration=1.0, model="m", language="fr", speaker_count=1)
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        get(name)([], meta, with_timestamps=False)

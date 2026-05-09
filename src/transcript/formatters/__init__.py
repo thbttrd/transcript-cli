@@ -1,4 +1,8 @@
-"""Output formatters. Each module exposes `render(utterances, meta, **kwargs) -> str`."""
+"""Output formatters. Each module exposes a render(utterances, meta, ...) -> str function.
+
+Only md.render accepts a with_timestamps kwarg; the dispatcher's caller is responsible
+for passing format-specific options conditionally (see pipeline.py for the pattern).
+"""
 from collections.abc import Callable
 
 from transcript.formatters import json as _json
