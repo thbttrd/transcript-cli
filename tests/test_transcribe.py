@@ -32,6 +32,7 @@ def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
     mocker.patch(
         "transcript.transcribe.config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
     )
+    mocker.patch("transcript.transcribe.Path.exists", return_value=True)
     out_json = tmp_path / "out.json"
 
     def fake_run(cmd, *args, **kwargs):
@@ -61,6 +62,7 @@ def test_run_auto_language_when_none(tmp_path, mocker):
     mocker.patch(
         "transcript.transcribe.config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
     )
+    mocker.patch("transcript.transcribe.Path.exists", return_value=True)
 
     def fake_run(cmd, *args, **kwargs):
         json_file = Path(cmd[cmd.index("-of") + 1] + ".json")
@@ -91,6 +93,7 @@ def test_run_propagates_whisper_failure(tmp_path, mocker):
     mocker.patch(
         "transcript.transcribe.config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
     )
+    mocker.patch("transcript.transcribe.Path.exists", return_value=True)
     err = sp.CalledProcessError(1, "main", stderr=b"failed badly")
     mocker.patch("transcript.transcribe.subprocess.run", side_effect=err)
     with pytest.raises(transcribe.TranscribeError, match="failed badly"):

@@ -31,7 +31,15 @@ def _parse_words(data: dict) -> list[Word]:
 def run(wav_path: Path, *, model: str, language: str | None) -> list[Word]:
     """Transcribe a 16 kHz mono WAV using whisper.cpp; return word-level Words."""
     binary = config.whisper_binary()
+    if not binary.exists():
+        raise TranscribeError(
+            f"whisper.cpp binary not found at {binary}. Run scripts/install.sh."
+        )
     model_path = config.whisper_model(model)
+    if not model_path.exists():
+        raise TranscribeError(
+            f"whisper model {model_path.name} not found. Run scripts/install.sh."
+        )
 
     out_prefix = Path(tempfile.mkdtemp(prefix="transcript-")) / "whisper-out"
     cmd = [
@@ -47,10 +55,6 @@ def run(wav_path: Path, *, model: str, language: str | None) -> list[Word]:
     ]
     try:
         subprocess.run(cmd, capture_output=True, check=True)
-    except FileNotFoundError as e:
-        raise TranscribeError(
-            f"whisper.cpp binary not found at {binary}. Run scripts/install.sh."
-        ) from e
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode(errors="replace") if e.stderr else ""
         raise TranscribeError(f"whisper.cpp failed: {stderr.strip()}") from e
