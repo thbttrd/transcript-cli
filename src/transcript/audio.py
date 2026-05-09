@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -63,7 +64,9 @@ def prepare(path: Path) -> tuple[Path, float]:
     if is_correct_wav:
         return path, duration
 
-    out_path = Path(tempfile.mkstemp(suffix=".wav", prefix="transcript-")[1])
+    fd, out_path_str = tempfile.mkstemp(suffix=".wav", prefix="transcript-")
+    os.close(fd)
+    out_path = Path(out_path_str)
     cmd = [
         "ffmpeg",
         "-loglevel", "error",

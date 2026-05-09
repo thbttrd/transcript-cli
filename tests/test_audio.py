@@ -1,3 +1,5 @@
+import json as _json
+import subprocess as _sp
 from pathlib import Path
 
 import pytest
@@ -62,4 +64,36 @@ def test_ffmpeg_missing_raises(tmp_path, mocker):
     )
     mocker.patch("transcript.audio.subprocess.run", side_effect=FileNotFoundError("ffmpeg"))
     with pytest.raises(audio.AudioError, match="ffmpeg"):
+        audio.prepare(src)
+
+
+def test_probe_called_process_error_raises(tmp_path, mocker):
+    src = tmp_path / "bad.m4a"
+    src.write_bytes(b"")
+    err = _sp.CalledProcessError(1, ["ffprobe"], stderr="moov atom not found")
+    mocker.patch("transcript.audio.subprocess.run", side_effect=err)
+    with pytest.raises(audio.AudioError, match="could not read audio"):
+        audio.prepare(src)
+
+
+def test_probe_no_audio_stream_raises(tmp_path, mocker):
+    src = tmp_path / "video-only.mp4"
+    src.write_bytes(b"")
+    fake_stdout = _json.dumps({
+        "streams": [{"codec_type": "video", "sample_rate": "0", "channels": 0}],
+        "format": {"duration": "5.0"},
+    })
+    mocker.patch(
+        "transcript.audio.subprocess.run",
+        return_value=mocker.Mock(stdout=fake_stdout, returncode=0),
+    )
+    with pytest.raises(audio.AudioError, match="no audio stream"):
+        audio.prepare(src)
+
+
+def test_probe_ffprobe_missing_raises(tmp_path, mocker):
+    src = tmp_path / "v.m4a"
+    src.write_bytes(b"")
+    mocker.patch("transcript.audio.subprocess.run", side_effect=FileNotFoundError("ffprobe"))
+    with pytest.raises(audio.AudioError, match="ffprobe"):
         audio.prepare(src)
