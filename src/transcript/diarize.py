@@ -15,7 +15,7 @@ _PIPELINE_NAME = "pyannote/speaker-diarization-3.1"
 
 
 def _to_turns(annotation) -> list[Turn]:
-    """Relabel pyannote's opaque speaker IDs as Speaker 1, Speaker 2, … in first-appearance order."""
+    """Relabel pyannote's speaker IDs as Speaker 1, Speaker 2, … in first-appearance order."""
     label_map: dict[str, str] = {}
     turns: list[Turn] = []
     for segment, _track, label in annotation.itertracks(yield_label=True):
@@ -34,12 +34,13 @@ def run(wav_path: Path, *, num_speakers: int | None) -> list[Turn]:
         status = getattr(getattr(e, "response", None), "status_code", None)
         if status in (401, 403):
             raise DiarizeError(
-                "pyannote refused the download (HTTP {0}). Likely cause: license not accepted.\n"
+                f"pyannote refused the download (HTTP {status}). "
+                "Likely cause: license not accepted.\n"
                 "  1. Sign in at https://huggingface.co\n"
                 "  2. Click 'Agree' on:\n"
                 "     - https://huggingface.co/pyannote/speaker-diarization-3.1\n"
                 "     - https://huggingface.co/pyannote/segmentation-3.0\n"
-                "  3. Re-run the same command.".format(status)
+                "  3. Re-run the same command."
             ) from e
         raise DiarizeError(f"could not load pyannote pipeline: {e}") from e
 

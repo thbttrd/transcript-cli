@@ -23,7 +23,12 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="transcript",
         description="Local voice-memo transcription with speaker diarization.",
     )
-    p.add_argument("audio_file", nargs="?", type=Path, help="Audio file (.m4a, .mp3, .wav, .mp4, …)")
+    p.add_argument(
+        "audio_file",
+        nargs="?",
+        type=Path,
+        help="Audio file (.m4a, .mp3, .wav, .mp4, …)",
+    )
     p.add_argument("-o", "--output", type=Path, help="Write transcript to file (default: stdout)")
     p.add_argument(
         "-f", "--format",
