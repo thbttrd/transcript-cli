@@ -19,12 +19,15 @@ def _format_duration(seconds: float) -> str:
 
 def render(utterances: list[Utterance], meta: Meta, *, with_timestamps: bool = True) -> str:
     speaker_word = "speaker" if meta.speaker_count == 1 else "speakers"
+    transcribed_with = f"whisper.cpp {meta.model} ({meta.language})"
+    if meta.diarizer:
+        transcribed_with += f" + {meta.diarizer}"
     lines: list[str] = [
         f"# {meta.filename}",
         "",
         (
-            f"> Transcribed with whisper.cpp {meta.model} ({meta.language}) "
-            f"+ pyannote 3.1 · {meta.speaker_count} {speaker_word} · "
+            f"> Transcribed with {transcribed_with} · "
+            f"{meta.speaker_count} {speaker_word} · "
             f"{_format_duration(meta.duration)}"
         ),
         "",

@@ -26,7 +26,8 @@ class Utterance:
 @dataclass(frozen=True)
 class Meta:
     filename: str
-    duration: float       # seconds
-    model: str            # e.g. "large-v3"
-    language: str         # ISO code e.g. "fr"
-    speaker_count: int    # 1 if --no-diarize, otherwise pyannote-detected count
+    duration: float           # seconds
+    model: str                # e.g. "large-v3"
+    language: str             # ISO code e.g. "fr"
+    speaker_count: int        # 1 if --no-diarize, otherwise diarizer-detected count
+    diarizer: str | None = None  # human-readable backend label, None when --no-diarize

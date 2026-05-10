@@ -18,10 +18,6 @@ def _setup_ready() -> tuple[bool, str]:
     base_model = config.whisper_model("base")
     if not base_model.exists():
         return False, f"whisper 'base' model missing at {base_model} (download via whisper.cpp's download-ggml-model.sh)"
-    try:
-        config.hf_token()
-    except config.MissingTokenError:
-        return False, "HF_TOKEN missing"
     return True, ""
 
 
@@ -35,13 +31,13 @@ def test_full_pipeline_against_tiny_wav():
         audio_path=FIXTURE,
         model="base",            # use the small model to keep this test fast
         language="fr",
-        diarize=True,
+        with_diarization=True,
         num_speakers=2,
         format_name="json",
         with_timestamps=True,
     )
     data = json.loads(out)
-    # Two French voices — pyannote should detect 2 speakers
+    # Two French voices — Sortformer should detect 2 speakers
     assert data["meta"]["speaker_count"] == 2
     # Some recognisable French content should be present
     text = " ".join(u["text"] for u in data["utterances"]).lower()
@@ -58,7 +54,7 @@ def test_no_diarize_returns_single_speaker():
         audio_path=FIXTURE,
         model="base",
         language="fr",
-        diarize=False,
+        with_diarization=False,
         num_speakers=None,
         format_name="json",
         with_timestamps=True,

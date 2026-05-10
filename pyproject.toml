@@ -1,24 +1,29 @@
 [project]
 name = "transcript-app"
 version = "0.1.0"
-description = "Local voice-memo transcription with speaker diarization (whisper.cpp + pyannote)"
-requires-python = ">=3.11,<3.13"
+description = "Local voice-memo transcription with speaker diarization (whisper.cpp + NeMo Sortformer)"
+requires-python = ">=3.11,<3.12"
 authors = [{ name = "Thibaut Troude" }]
+# Pins are exact, not ranges, to keep the runtime reproducible across machines and
+# to avoid uv silently picking a Python with no torch wheels (torch <2.5 ships only
+# cp310/cp311/cp312 wheels — Python 3.13+ resolutions break). Bump deliberately.
 dependencies = [
-    "pyannote.audio>=3.1,<3.4",
-    # Pinned <2.5: pyannote.audio 3.3.x imports torchaudio.AudioMetaData,
-    # which was deprecated in torchaudio 2.5 and removed in 2.9+.
-    "torch>=2.2,<2.5",
-    "torchaudio>=2.2,<2.5",
-    "keyring>=24.0",
+    "torch==2.4.1",
+    "torchaudio==2.4.1",
+    # NeMo Sortformer (nvidia/diar_sortformer_4spk-v1) is our diarizer.
+    # Pulls in ~1.5 GB of transitive deps from the asr extras.
+    "nemo_toolkit[asr]==2.2.1",
+    # NeMo 2.2.1 calls np.sctypes (removed in numpy 2.0) in its audio
+    # preprocessing path. Pin numpy<2 until NeMo updates.
+    "numpy==1.26.4",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
-    "pytest-mock>=3.12",
-    "ruff>=0.5",
+    "pytest==8.3.4",
+    "pytest-cov==6.0.0",
+    "pytest-mock==3.14.0",
+    "ruff==0.8.4",
 ]
 
 [project.scripts]

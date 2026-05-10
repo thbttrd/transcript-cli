@@ -1,14 +1,14 @@
 # transcript
 
 Local voice-memo transcription with speaker diarization on Apple Silicon Macs.
-Pairs **whisper.cpp** (CoreML + Metal + ANE) with **pyannote 3.1** (PyTorch MPS) and merges
+Pairs **whisper.cpp** (CoreML + Metal + ANE) with **NeMo Sortformer 4spk-v1** (CPU) and merges
 their output into a markdown transcript. Audio never leaves your machine.
 
 ```
 $ transcript interview.m4a
 # interview.m4a
 
-> Transcribed with whisper.cpp large-v3 (fr) + pyannote 3.1 · 2 speakers · 12m34s
+> Transcribed with whisper.cpp large-v3 (fr) + NeMo Sortformer 4spk-v1 · 2 speakers · 12m34s
 
 ## Speaker 1 [00:00]
 Bonjour, nous allons parler de…
@@ -32,9 +32,8 @@ After install: `transcript --doctor` to verify everything is in place.
 2. Installs `ffmpeg`, `cmake`, `uv` if missing (via brew).
 3. Clones `whisper.cpp` to `~/.local/share/transcript/whisper.cpp` and builds it with `WHISPER_COREML=1`.
 4. Downloads `ggml-large-v3.bin` (~3 GB) and generates the CoreML encoder.
-5. Prompts for your HuggingFace token, stores it in macOS Keychain.
-6. Installs the `transcript` CLI globally via `uv tool install`.
-7. Runs `transcript --doctor` to confirm.
+5. Installs the `transcript` CLI globally via `uv tool install`. NeMo Sortformer weights download lazily on first run (~120 MB, cached in `~/.cache/huggingface/`).
+6. Runs `transcript --doctor` to confirm.
 
 Everything lives under `~/.local/share/transcript/` — to uninstall, delete that directory and run `uv tool uninstall transcript-app`.
 
@@ -54,21 +53,24 @@ WHISPER_COREML=1 WHISPER_COREML_ALLOW_FALLBACK=1 make -j
 
 # Models
 bash ./models/download-ggml-model.sh large-v3
-bash ./models/generate-coreml-model.sh large-v3
+
+# CoreML conversion needs torch + coremltools + openai-whisper + ane_transformers,
+# pinned to versions that disagree with the runtime's torch — keep them isolated.
+uv venv --python 3.11 ~/.local/share/transcript/coreml-venv
+uv pip install --python ~/.local/share/transcript/coreml-venv/bin/python \
+  -r ./models/requirements-coreml.txt
+PATH="$HOME/.local/share/transcript/coreml-venv/bin:$PATH" \
+  bash ./models/generate-coreml-model.sh large-v3
+
 mkdir -p ~/.local/share/transcript/models
 mv models/ggml-large-v3.bin ~/.local/share/transcript/models/
 mv models/ggml-large-v3-encoder.mlmodelc ~/.local/share/transcript/models/
 
-# HF token (visit https://huggingface.co/settings/tokens, accept licences on
-# pyannote/speaker-diarization-3.1 and pyannote/segmentation-3.0)
-export HF_TOKEN=hf_xxxxxxxxxx
-# or store in Keychain so you don't need the env var:
-security add-generic-password -s transcript -a huggingface -w "$HF_TOKEN"
-
-# Install the CLI
+# Install the CLI — pin Python 3.11; torch 2.4.1 has no cp313/cp314 wheels.
+# NeMo Sortformer weights (~120 MB) download lazily on first run.
 git clone https://github.com/<you>/transcript-app
 cd transcript-app
-uv tool install --from "$(pwd)" transcript-app
+uv tool install --python 3.11 --force --from "$(pwd)" transcript-app
 ```
 
 ## Usage
@@ -98,10 +100,11 @@ Common issues:
 | Symptom | Cause | Fix |
 |---|---|---|
 | `whisper.cpp binary not found` | Install incomplete | `bash scripts/install.sh` |
-| `pyannote refused (HTTP 401)` | License not accepted | Sign in to HF, click "Agree" on the two pyannote model pages, re-run |
 | `ffmpeg not found` | Missing system dep | `brew install ffmpeg` |
-| Hangs at "transcribing" | First diarize run downloading model | Wait — pyannote weights (~100 MB) cache to `~/.cache/huggingface/`, only downloaded once |
+| Hangs at "transcribing" | First diarize run downloading model | Wait — Sortformer weights (~120 MB) cache to `~/.cache/huggingface/`, only downloaded once |
 | `--doctor` says CoreML encoder missing | Built without `WHISPER_COREML=1` | Re-run install script |
+| `ModuleNotFoundError: No module named 'torch'` during install | CoreML conversion deps not installed | Re-run install script (newer versions stand up an isolated venv at `~/.local/share/transcript/coreml-venv`) |
+| `torch>=…,<=2.4.1 has no wheels with a matching Python ABI tag` | `uv` picked Python 3.13+ where torch 2.4.1 has no wheels | Re-run install script — it now passes `--python 3.11` explicitly. If you used a custom command, add `--python 3.11` to `uv tool install` |
 | Integration tests skip "tiny.wav not generated" | Fixture not built yet | After install.sh, run `bash scripts/generate_tiny_wav.sh` to create the test fixture |
 
 ## For Claude Code users
@@ -125,7 +128,7 @@ uv sync --all-extras
 # Unit tests (fast, no audio, no network)
 uv run pytest -m "not integration"
 
-# Integration tests (require install + HF token)
+# Integration tests (require install)
 uv run pytest -m integration
 ```
 
@@ -135,4 +138,4 @@ See [`docs/superpowers/specs/2026-05-09-transcript-cli-design.md`](docs/superpow
 
 ## Licence
 
-Personal project. whisper.cpp is MIT. pyannote is MIT (model weights have their own gated licence — see HuggingFace).
+Personal project. whisper.cpp is MIT. NeMo Sortformer is NSCLv1 (NVIDIA Source Code License — free for personal/commercial use).

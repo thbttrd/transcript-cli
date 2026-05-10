@@ -38,7 +38,7 @@ def test_main_dispatches_to_pipeline_with_defaults(tmp_path, mocker):
     assert kwargs["audio_path"] == f
     assert kwargs["model"] == "large-v3"
     assert kwargs["language"] is None
-    assert kwargs["diarize"] is True
+    assert kwargs["with_diarization"] is True
     assert kwargs["num_speakers"] is None
     assert kwargs["format_name"] == "md"
     assert kwargs["with_timestamps"] is True
@@ -49,7 +49,7 @@ def test_main_no_diarize_flag(tmp_path, mocker):
     spy = mocker.patch("transcript.cli.pipeline.run", return_value="ok")
     cli.main([str(f), "--no-diarize"])
     _, kwargs = spy.call_args
-    assert kwargs["diarize"] is False
+    assert kwargs["with_diarization"] is False
 
 
 def test_main_speakers_flag(tmp_path, mocker):
@@ -98,16 +98,5 @@ def test_main_diarize_error_exit_12(tmp_path, mocker, capsys):
     mocker.patch("transcript.cli.pipeline.run", side_effect=DiarizeError("license missing"))
     code = cli.main([str(f)])
     captured = capsys.readouterr()
-    assert code == 12
+    assert code == 11
     assert "license missing" in captured.err
-
-
-def test_main_missing_token_error_exit_12(tmp_path, mocker, capsys):
-    from transcript.config import MissingTokenError
-
-    f = tmp_path / "v.m4a"; f.write_bytes(b"")
-    mocker.patch("transcript.cli.pipeline.run", side_effect=MissingTokenError("no token"))
-    code = cli.main([str(f)])
-    captured = capsys.readouterr()
-    assert code == 12
-    assert "no token" in captured.err

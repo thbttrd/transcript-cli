@@ -5,6 +5,14 @@ import torch
 from transcript import config
 
 
+def _nemo_importable() -> bool:
+    try:
+        import nemo.collections.asr  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _check(label: str, ok: bool, hint: str | None = None) -> tuple[bool, str]:
     mark = "✓" if ok else "✗"
     line = f"  {mark} {label}"
@@ -44,15 +52,10 @@ def check() -> tuple[int, str]:
         hint="brew install ffmpeg",
     ))
 
-    try:
-        config.hf_token()
-        token_ok = True
-    except config.MissingTokenError:
-        token_ok = False
     results.append(_check(
-        "HF token in env or Keychain",
-        token_ok,
-        hint="set $HF_TOKEN or run scripts/install.sh",
+        "nemo_toolkit importable",
+        _nemo_importable(),
+        hint="re-run scripts/install.sh",
     ))
 
     results.append(_check(

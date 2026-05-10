@@ -3,15 +3,35 @@ from transcript.models import Turn, Utterance, Word
 UNKNOWN = "Unknown"
 
 
-def _speaker_at(t: float, turns: list[Turn]) -> str:
+def _best_speaker(word: Word, turns: list[Turn]) -> str:
+    if not turns:
+        return UNKNOWN
+
+    best_overlap = 0.0
+    best_turn: Turn | None = None
+    earliest_upcoming: Turn | None = None
+    latest_turn: Turn | None = None
     for turn in turns:
-        if turn.start <= t <= turn.end:
-            return turn.speaker
-    return UNKNOWN
+        overlap = min(word.end, turn.end) - max(word.start, turn.start)
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_turn = turn
+        if turn.start >= word.start and (earliest_upcoming is None or turn.start < earliest_upcoming.start):
+            earliest_upcoming = turn
+        if latest_turn is None or turn.end > latest_turn.end:
+            latest_turn = turn
+
+    if best_turn is not None:
+        return best_turn.speaker
+    # No overlap: word sits in a gap. Prefer the upcoming turn — boundary words
+    # are usually the first word of the new speaker, not the last of the previous.
+    if earliest_upcoming is not None:
+        return earliest_upcoming.speaker
+    return latest_turn.speaker  # type: ignore[union-attr]
 
 
 def assign(words: list[Word], turns: list[Turn]) -> list[Utterance]:
-    """Assign each word to a speaker by timestamp midpoint, then collapse runs."""
+    """Assign each word to a speaker (max overlap, fall back to upcoming turn), then collapse runs."""
     if not words:
         return []
 
@@ -32,8 +52,7 @@ def assign(words: list[Word], turns: list[Turn]) -> list[Utterance]:
         )
 
     for word in words:
-        midpoint = (word.start + word.end) / 2
-        speaker = _speaker_at(midpoint, turns)
+        speaker = _best_speaker(word, turns)
         if speaker != current_speaker and current_words:
             flush()
             current_words = []

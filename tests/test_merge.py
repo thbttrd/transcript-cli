@@ -47,15 +47,6 @@ def test_speaker_change_creates_two_utterances():
     ]
 
 
-def test_word_midpoint_is_what_decides_assignment():
-    # Word from 0.9 to 1.2; midpoint 1.05; turn boundary at 1.0.
-    # Midpoint is in turn 2, so word is assigned to Speaker 2.
-    words = [w(" overlap", 0.9, 1.2)]
-    turns = [t("Speaker 1", 0.0, 1.0), t("Speaker 2", 1.0, 2.0)]
-    result = assign(words, turns)
-    assert result == [Utterance(speaker="Speaker 2", start=0.9, end=1.2, text="overlap")]
-
-
 def test_three_speakers_alternating():
     words = [
         w(" a", 0.0, 0.2),
@@ -74,11 +65,21 @@ def test_three_speakers_alternating():
     assert [u.text for u in result] == ["a", "b", "c", "d"]
 
 
-def test_word_in_gap_between_turns_is_unknown():
+def test_word_in_gap_snaps_to_upcoming_turn():
+    # Word at 1.0–1.5 sits past S1's end with no S2 overlap. The word is the
+    # first word of the next speaker, not the last word of the previous.
     words = [w(" lonely", 1.0, 1.5)]
-    turns = [t("Speaker 1", 0.0, 0.5), t("Speaker 2", 2.0, 3.0)]
+    turns = [t("Speaker 1", 0.0, 1.0), t("Speaker 2", 2.0, 3.0)]
     result = assign(words, turns)
-    assert result == [Utterance(speaker="Unknown", start=1.0, end=1.5, text="lonely")]
+    assert result == [Utterance(speaker="Speaker 2", start=1.0, end=1.5, text="lonely")]
+
+
+def test_word_overlapping_two_turns_picks_max_overlap():
+    # Word 0.8–1.4 overlaps S1 by 0.2 and S2 by 0.4 → S2 wins.
+    words = [w(" overlap", 0.8, 1.4)]
+    turns = [t("Speaker 1", 0.0, 1.0), t("Speaker 2", 1.0, 2.0)]
+    result = assign(words, turns)
+    assert result == [Utterance(speaker="Speaker 2", start=0.8, end=1.4, text="overlap")]
 
 
 def test_text_is_stripped_and_concatenated_in_order():

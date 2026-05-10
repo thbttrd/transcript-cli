@@ -1,55 +1,66 @@
 from pathlib import Path
 
-import torch
-from pyannote.audio import Pipeline
-
-from transcript import config
 from transcript.models import Turn
+
+DIARIZER_LABEL = "NeMo Sortformer 4spk-v1"
+_NEMO_MODEL = "nvidia/diar_sortformer_4spk-v1"
 
 
 class DiarizeError(RuntimeError):
     """User-facing diarization error."""
 
 
-_PIPELINE_NAME = "pyannote/speaker-diarization-3.1"
-
-
-def _to_turns(annotation) -> list[Turn]:
-    """Relabel pyannote's speaker IDs as Speaker 1, Speaker 2, … in first-appearance order."""
+def _relabel(raw_labels: list[tuple[float, float, str]]) -> list[Turn]:
+    """Convert raw (start, end, label) tuples into Turns with stable Speaker N labels."""
     label_map: dict[str, str] = {}
     turns: list[Turn] = []
-    for segment, _track, label in annotation.itertracks(yield_label=True):
+    for start, end, label in raw_labels:
         if label not in label_map:
             label_map[label] = f"Speaker {len(label_map) + 1}"
-        turns.append(Turn(speaker=label_map[label], start=segment.start, end=segment.end))
+        turns.append(Turn(speaker=label_map[label], start=start, end=end))
     return turns
 
 
+def _parse_sortformer_segments(segments: list[str]) -> list[tuple[float, float, str]]:
+    """Parse Sortformer outputs ("start end speaker_id") into tuples."""
+    out: list[tuple[float, float, str]] = []
+    for line in segments:
+        parts = line.strip().split()
+        if len(parts) < 3:
+            continue
+        try:
+            start = float(parts[0])
+            end = float(parts[1])
+        except ValueError:
+            continue
+        out.append((start, end, parts[2]))
+    return out
+
+
 def run(wav_path: Path, *, num_speakers: int | None) -> list[Turn]:
-    """Diarize `wav_path` using pyannote 3.1; return turns relabeled as Speaker N."""
-    token = config.hf_token()
+    """Diarize `wav_path` with NeMo Sortformer; return Turns labeled Speaker 1..N."""
     try:
-        pipeline = Pipeline.from_pretrained(_PIPELINE_NAME, use_auth_token=token)
+        from nemo.collections.asr.models import SortformerEncLabelModel
+    except ImportError as e:
+        raise DiarizeError(
+            "nemo_toolkit not installed. Re-run scripts/install.sh."
+        ) from e
+
+    # NeMo's MPS autocast path is broken in 2.2.1; CPU runs in seconds anyway.
+    try:
+        model = SortformerEncLabelModel.from_pretrained(_NEMO_MODEL, map_location="cpu")
     except Exception as e:
-        status = getattr(getattr(e, "response", None), "status_code", None)
-        if status in (401, 403):
-            raise DiarizeError(
-                f"pyannote refused the download (HTTP {status}). "
-                "Likely cause: license not accepted.\n"
-                "  1. Sign in at https://huggingface.co\n"
-                "  2. Click 'Agree' on:\n"
-                "     - https://huggingface.co/pyannote/speaker-diarization-3.1\n"
-                "     - https://huggingface.co/pyannote/segmentation-3.0\n"
-                "  3. Re-run the same command."
-            ) from e
-        raise DiarizeError(f"could not load pyannote pipeline: {e}") from e
+        raise DiarizeError(f"could not load NeMo Sortformer: {e}") from e
+    model.train(False)
 
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
-    pipeline.to(torch.device(device))
+    results = model.diarize(audio=[str(wav_path)], batch_size=1)
+    raw_lines = results[0] if results else []
+    raw = _parse_sortformer_segments(raw_lines)
 
-    kwargs: dict = {}
+    # Sortformer 4spk-v1 always emits up to 4 labels. If the user fixed --speakers
+    # below 4, drop turns labeled beyond that count by first-appearance order.
+    turns = _relabel(raw)
     if num_speakers is not None:
-        kwargs["min_speakers"] = num_speakers
-        kwargs["max_speakers"] = num_speakers
-    annotation = pipeline(str(wav_path), **kwargs)
-    return _to_turns(annotation)
+        keep = {f"Speaker {i + 1}" for i in range(num_speakers)}
+        turns = [t for t in turns if t.speaker in keep]
+    return turns

@@ -4,6 +4,7 @@ set -euo pipefail
 DATA_DIR="$HOME/.local/share/transcript"
 WHISPER_DIR="$DATA_DIR/whisper.cpp"
 MODELS_DIR="$DATA_DIR/models"
+COREML_VENV="$DATA_DIR/coreml-venv"
 MODEL="large-v3"
 
 # 1. Sanity checks
@@ -29,23 +30,18 @@ if [[ ! -f "$MODELS_DIR/ggml-${MODEL}.bin" ]]; then
   mv "$WHISPER_DIR/models/ggml-${MODEL}.bin" "$MODELS_DIR/"
 fi
 if [[ ! -d "$MODELS_DIR/ggml-${MODEL}-encoder.mlmodelc" ]]; then
-  ( cd "$WHISPER_DIR" && bash ./models/generate-coreml-model.sh "$MODEL" )
+  # CoreML conversion needs torch + coremltools + openai-whisper + ane_transformers,
+  # pinned to versions that disagree with the runtime's torch<2.5. Keep them in an
+  # isolated, install-time-only venv so they don't leak into the user's Python env.
+  [[ -d "$COREML_VENV" ]] || uv venv --python 3.11 "$COREML_VENV"
+  uv pip install --python "$COREML_VENV/bin/python" \
+    -r "$WHISPER_DIR/models/requirements-coreml.txt"
+  ( cd "$WHISPER_DIR" \
+    && PATH="$COREML_VENV/bin:$PATH" bash ./models/generate-coreml-model.sh "$MODEL" )
   mv "$WHISPER_DIR/models/ggml-${MODEL}-encoder.mlmodelc" "$MODELS_DIR/"
 fi
 
-# 5. HuggingFace token → Keychain
-if ! security find-generic-password -s transcript -a huggingface >/dev/null 2>&1; then
-  echo
-  echo "→ Need a HuggingFace token for pyannote (free)."
-  echo "  1. Create one at https://huggingface.co/settings/tokens"
-  echo "  2. Accept license at https://huggingface.co/pyannote/speaker-diarization-3.1"
-  echo "  3. Accept license at https://huggingface.co/pyannote/segmentation-3.0"
-  echo
-  read -rsp "Paste your HF token (input hidden): " HF_TOKEN; echo
-  security add-generic-password -s transcript -a huggingface -w "$HF_TOKEN"
-fi
-
-# 6. Install the CLI globally — clone repo if not invoked from inside it
+# 5. Install the CLI globally — clone repo if not invoked from inside it
 if [[ -f "$(pwd)/pyproject.toml" ]] && grep -q '^name = "transcript-app"' "$(pwd)/pyproject.toml" 2>/dev/null; then
   REPO_DIR="$(pwd)"
 else
@@ -53,9 +49,13 @@ else
   [[ -d "$REPO_DIR" ]] || git clone https://github.com/<you>/transcript-app "$REPO_DIR"
   ( cd "$REPO_DIR" && git pull --ff-only )
 fi
-uv tool install --from "$REPO_DIR" transcript-app
+# --python 3.11 is mandatory: torch 2.4.1 only ships cp310/cp311/cp312 wheels,
+# and older uv versions can pick 3.13/3.14 even when requires-python forbids it.
+# --force re-installs the tool; --reinstall forces a fresh wheel build from source
+# (without it, uv reuses the cached 0.1.0 wheel and source-only changes don't ship).
+uv tool install --python 3.11 --force --reinstall --from "$REPO_DIR" transcript-app
 
-# 7. Smoke check
+# 6. Smoke check
 echo
 transcript --doctor || true   # report-only; doctor exit code != 0 is informative, not fatal here
 echo

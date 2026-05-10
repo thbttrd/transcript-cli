@@ -4,7 +4,6 @@ from pathlib import Path
 
 from transcript import __version__, doctor, pipeline
 from transcript.audio import AudioError
-from transcript.config import MissingTokenError
 from transcript.diarize import DiarizeError
 from transcript.progress import Progress
 from transcript.transcribe import TranscribeError
@@ -14,7 +13,6 @@ EXIT_ERR = 1
 EXIT_USAGE = 2
 EXIT_AUDIO = 10
 EXIT_SETUP = 11
-EXIT_AUTH = 12
 EXIT_RESOURCE = 13
 
 
@@ -73,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
             audio_path=args.audio_file,
             model=args.model,
             language=args.language,
-            diarize=not args.no_diarize,
+            with_diarization=not args.no_diarize,
             num_speakers=args.speakers,
             format_name=args.format,
             with_timestamps=not args.no_timestamps,
@@ -85,9 +83,9 @@ def main(argv: list[str] | None = None) -> int:
     except TranscribeError as e:
         print(f"✗ {e}", file=sys.stderr)
         return EXIT_SETUP
-    except (DiarizeError, MissingTokenError) as e:
+    except DiarizeError as e:
         print(f"✗ {e}", file=sys.stderr)
-        return EXIT_AUTH
+        return EXIT_SETUP
     except Exception as e:  # last-resort
         if args.verbose:
             raise

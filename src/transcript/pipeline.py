@@ -11,7 +11,7 @@ def run(
     audio_path: Path,
     model: str,
     language: str | None,
-    diarize: bool,
+    with_diarization: bool,
     num_speakers: int | None,
     format_name: str,
     with_timestamps: bool,
@@ -25,7 +25,7 @@ def run(
 
     is_temp_wav = wav != audio_path
     try:
-        if diarize:
+        if with_diarization:
             progress.step("transcribing + diarizing (parallel)")
             with ThreadPoolExecutor(max_workers=2) as ex:
                 words_fut = ex.submit(transcribe.run, wav, model=model, language=language)
@@ -50,10 +50,10 @@ def run(
             model=model,
             language=language or "auto",
             speaker_count=speaker_count,
+            diarizer=diarize.DIARIZER_LABEL if with_diarization else None,
         )
 
         render = formatters.get(format_name)
-        # Only md supports with_timestamps; pass it conditionally
         if format_name == "md":
             return render(utterances, meta, with_timestamps=with_timestamps)
         return render(utterances, meta)
@@ -62,6 +62,5 @@ def run(
             wav.unlink(missing_ok=True)
 
 
-# Indirection so tests can patch `transcript.pipeline.diarize.run`
 def diarize_module_run(wav: Path, num_speakers: int | None):
     return diarize.run(wav, num_speakers=num_speakers)
