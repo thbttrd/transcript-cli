@@ -8,22 +8,25 @@ authors = [{ name = "Thibaut Troude" }]
 # to avoid uv silently picking a Python with no torch wheels (torch <2.5 ships only
 # cp310/cp311/cp312 wheels — Python 3.13+ resolutions break). Bump deliberately.
 dependencies = [
-    "torch==2.4.1",
-    "torchaudio==2.4.1",
-    # NeMo Sortformer (nvidia/diar_sortformer_4spk-v1) is our diarizer.
-    # Pulls in ~1.5 GB of transitive deps from the asr extras.
-    "nemo_toolkit[asr]==2.2.1",
-    # NeMo 2.2.1 calls np.sctypes (removed in numpy 2.0) in its audio
-    # preprocessing path. Pin numpy<2 until NeMo updates.
+    "torch==2.6.0",
+    "torchaudio==2.6.0",
+    # NeMo Streaming Sortformer (nvidia/diar_streaming_sortformer_4spk-v2.1) is
+    # our diarizer. Pulls in ~1.5 GB of transitive deps from the asr extras.
+    # 2.7.3 is the first stable release containing the full Streaming Sortformer
+    # release-PR series (merged Aug 2025), which exposes spkcache_len etc.
+    "nemo_toolkit[asr]==2.7.3",
+    # NeMo 2.7.3 only requires numpy>=1.22 in core, but pins numpy<2 for its
+    # nlp-only/all extras (sox+others still aren't numpy-2 ready). Stay on 1.x.
     "numpy==1.26.4",
     # Forced word-alignment via Meta's MMS-300m (1100+ languages, one model).
     # Refines whisper.cpp's DTW-based word timestamps to sub-100 ms — fixes the
     # imprecise word boundaries that cause downstream diarization to scatter
     # words across the wrong speakers. PyPI publishes a different `ctc-forced-aligner`
     # (deskpai's ONNX repackage), so we install MahmoudAshraf97's via git.
-    # Note: this package's recent versions call `from_pretrained(dtype=...)`,
-    # which requires transformers >=4.50 — NeMo pins us to <=4.48.3. We bypass
-    # the broken `load_alignment_model` helper in transcript/align.py.
+    # Note: `transcript/align.py:_load_model` reimplements the package's
+    # `load_alignment_model` helper instead of calling it directly, because
+    # the helper hardcodes `.to(device)` with no MPS branch — we want the
+    # aligner on Apple Silicon's GPU when available.
     "ctc-forced-aligner @ git+https://github.com/MahmoudAshraf97/ctc-forced-aligner.git",
 ]
 

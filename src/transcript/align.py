@@ -7,9 +7,10 @@ word boundaries from whisper.cpp that cause downstream diarization to assign
 words to the wrong speaker. Falls through gracefully on any error.
 
 Implementation note: we bypass ctc-forced-aligner's `load_alignment_model`
-helper because its recent versions call `from_pretrained(dtype=...)`, which
-requires transformers >=4.50. We're pinned to 4.48.3 (NeMo 2.2.1 constraint),
-so we load the model ourselves using the older `torch_dtype=` alias.
+helper because it hardcodes `.to(device)` with no MPS branch — we want the
+model on Apple Silicon's GPU when available. Otherwise the helper would be a
+drop-in replacement (transformers 4.57 supports the `dtype=` kwarg the helper
+uses).
 """
 import sys
 from pathlib import Path
@@ -119,7 +120,7 @@ def _load_model():
         import torch
         from transformers import AutoModelForCTC, AutoTokenizer
         device = "mps" if torch.backends.mps.is_available() else "cpu"
-        m = AutoModelForCTC.from_pretrained(_MODEL_PATH, torch_dtype=torch.float32)
+        m = AutoModelForCTC.from_pretrained(_MODEL_PATH, dtype=torch.float32)
         m = m.to(device)
         m.train(False)  # inference mode (project convention; matches diarize.py)
         _model = m
