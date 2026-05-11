@@ -1,5 +1,5 @@
 [project]
-name = "transcript-app"
+name = "transcript-cli"
 version = "0.1.0"
 description = "Local voice-memo transcription with speaker diarization (whisper.cpp + NeMo Sortformer)"
 requires-python = ">=3.11,<3.12"
@@ -12,8 +12,7 @@ dependencies = [
     "torchaudio==2.6.0",
     # NeMo Streaming Sortformer (nvidia/diar_streaming_sortformer_4spk-v2.1) is
     # our diarizer. Pulls in ~1.5 GB of transitive deps from the asr extras.
-    # 2.7.3 is the first stable release containing the full Streaming Sortformer
-    # release-PR series (merged Aug 2025), which exposes spkcache_len etc.
+    # 2.7.x is the first stable line exposing SortformerModules.spkcache_len.
     "nemo_toolkit[asr]==2.7.3",
     # NeMo 2.7.3 only requires numpy>=1.22 in core, but pins numpy<2 for its
     # nlp-only/all extras (sox+others still aren't numpy-2 ready). Stay on 1.x.

@@ -2,7 +2,7 @@
 """Dump raw whisper words + raw Sortformer turns side-by-side for debugging.
 
 Usage:
-    ~/.local/share/uv/tools/transcript-app/bin/python scripts/dump_pipeline.py \
+    ~/.local/share/uv/tools/transcript-cli/bin/python scripts/dump_pipeline.py \
         "/path/to/audio.m4a" [--speakers N]
 """
 import argparse

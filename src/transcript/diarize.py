@@ -29,8 +29,36 @@ _STREAMING_PARAMS = {
 }
 
 
+_model = None
+
+
 class DiarizeError(RuntimeError):
     """User-facing diarization error."""
+
+
+def _load_model():
+    """Lazy-load the Sortformer model once. Cached across calls within a process."""
+    global _model
+    if _model is not None:
+        return _model
+    try:
+        from nemo.collections.asr.models import SortformerEncLabelModel
+    except ImportError as e:
+        raise DiarizeError(
+            "nemo_toolkit not installed. Re-run scripts/install.sh."
+        ) from e
+    # Stays on CPU: NeMo's MPS autocast path was unreliable last we checked,
+    # and streaming chunks run well under real-time on CPU anyway.
+    try:
+        m = SortformerEncLabelModel.from_pretrained(_NEMO_MODEL, map_location="cpu")
+    except Exception as e:
+        raise DiarizeError(f"could not load NeMo Sortformer: {e}") from e
+    m.train(False)
+    for name, value in _STREAMING_PARAMS.items():
+        setattr(m.sortformer_modules, name, value)
+    m.sortformer_modules._check_streaming_parameters()
+    _model = m
+    return _model
 
 
 def _relabel(raw_labels: list[tuple[float, float, str]]) -> list[Turn]:
@@ -62,26 +90,7 @@ def _parse_sortformer_segments(segments: list[str]) -> list[tuple[float, float, 
 
 def run(wav_path: Path, *, num_speakers: int | None) -> list[Turn]:
     """Diarize `wav_path` with NeMo Streaming Sortformer; return Turns labeled Speaker 1..N."""
-    try:
-        from nemo.collections.asr.models import SortformerEncLabelModel
-    except ImportError as e:
-        raise DiarizeError(
-            "nemo_toolkit not installed. Re-run scripts/install.sh."
-        ) from e
-
-    # NeMo's MPS autocast path was broken in 2.2.1; we kept CPU for v2.x too —
-    # the streaming chunks are small enough that CPU stays well under real-time.
-    try:
-        model = SortformerEncLabelModel.from_pretrained(_NEMO_MODEL, map_location="cpu")
-    except Exception as e:
-        raise DiarizeError(f"could not load NeMo Sortformer: {e}") from e
-    model.train(False)
-
-    m = model.sortformer_modules
-    for k, v in _STREAMING_PARAMS.items():
-        setattr(m, k, v)
-    m._check_streaming_parameters()
-
+    model = _load_model()
     results = model.diarize(audio=[str(wav_path)], batch_size=1)
     raw_lines = results[0] if results else []
     raw = _parse_sortformer_segments(raw_lines)

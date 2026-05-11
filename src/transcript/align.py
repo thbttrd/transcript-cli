@@ -9,8 +9,7 @@ words to the wrong speaker. Falls through gracefully on any error.
 Implementation note: we bypass ctc-forced-aligner's `load_alignment_model`
 helper because it hardcodes `.to(device)` with no MPS branch — we want the
 model on Apple Silicon's GPU when available. Otherwise the helper would be a
-drop-in replacement (transformers 4.57 supports the `dtype=` kwarg the helper
-uses).
+drop-in replacement.
 """
 import sys
 from pathlib import Path
