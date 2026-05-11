@@ -45,11 +45,11 @@ def reset_model_cache(monkeypatch):
 
 
 def _inject_fake_nemo(monkeypatch, sortformer_class):
-    """Install a fake `nemo.collections.asr.models` module chain in sys.modules
-    so the lazy `from nemo... import SortformerEncLabelModel` resolves to our
-    fake class without ever importing real NeMo."""
-    for name in ("nemo", "nemo.collections", "nemo.collections.asr"):
-        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    """Install a fake `nemo.collections.asr.models` in sys.modules so the lazy
+    `from nemo... import SortformerEncLabelModel` resolves to our fake without
+    ever importing real NeMo. Only the leaf is needed: `from X.Y.Z import …`
+    short-circuits when the dotted name is already in sys.modules and never
+    walks the parents."""
     fake_models = types.ModuleType("nemo.collections.asr.models")
     fake_models.SortformerEncLabelModel = sortformer_class
     monkeypatch.setitem(sys.modules, "nemo.collections.asr.models", fake_models)
