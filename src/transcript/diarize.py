@@ -7,7 +7,7 @@ _NEMO_MODEL = "nvidia/diar_streaming_sortformer_4spk-v2.1"
 
 # Streaming Sortformer v2.1 processes audio in chunks of `chunk_len` frames
 # (1 frame = 80 ms), so there's no fixed audio-length ceiling — the v1
-# non-streaming path topped out around 12 min on consumer hardware.
+# non-streaming path had a practical audio-length limit on consumer hardware.
 #
 # Two presets exist in NVIDIA's model card. We pick the "very high latency"
 # one: this is a batch CLI, not a real-time stream, so we trade time-to-first-

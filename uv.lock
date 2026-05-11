@@ -2790,7 +2790,7 @@ wheels = [
 ]
 
 [[package]]
-name = "transcript-app"
+name = "transcript-cli"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

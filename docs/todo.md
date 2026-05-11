@@ -23,10 +23,9 @@ with the "very-high-latency" preset (chunk_len=340, RTF≈0.002). Removes the v1
 ~12-minute ceiling — streaming chunks handle arbitrarily long audio.
 
 The blocker described here originally (transformers ≤4.48.3 vs ≥4.50) turned
-out to be illusory: transformers 4.57.6 (pulled in by NeMo 2.7.3) keeps
-`torch_dtype=` backward-compatible (deprecation warning only), so `align.py`'s
-manual model load still works unchanged. Optional follow-up: switch to `dtype=`
-to silence the warning.
+out to be illusory: transformers 4.57.6 (pulled in by NeMo 2.7.3) accepts
+both `dtype=` and the legacy `torch_dtype=`, so `align.py`'s manual model
+load needed only a one-character kwarg switch.
 
 ## 3. Quantitative evaluation on real datasets
 
