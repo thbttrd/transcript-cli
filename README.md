@@ -35,7 +35,7 @@ After install: `transcript --doctor` to verify everything is in place.
 5. Installs the `transcript` CLI globally via `uv tool install`. NeMo Sortformer weights download lazily on first run (~120 MB, cached in `~/.cache/huggingface/`).
 6. Runs `transcript --doctor` to confirm.
 
-Everything lives under `~/.local/share/transcript/` — to uninstall, delete that directory and run `uv tool uninstall transcript-app`.
+Everything lives under `~/.local/share/transcript/` — to uninstall, delete that directory and run `uv tool uninstall transcript-cli`.
 
 </details>
 
@@ -68,9 +68,9 @@ mv models/ggml-large-v3-encoder.mlmodelc ~/.local/share/transcript/models/
 
 # Install the CLI — pin Python 3.11 per pyproject's requires-python.
 # NeMo Streaming Sortformer weights (~120 MB) download lazily on first run.
-git clone https://github.com/<you>/transcript-app
-cd transcript-app
-uv tool install --python 3.11 --force --from "$(pwd)" transcript-app
+git clone https://github.com/<you>/transcript-cli
+cd transcript-cli
+uv tool install --python 3.11 --force --from "$(pwd)" transcript-cli
 ```
 
 ## Usage

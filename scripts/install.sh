@@ -42,11 +42,11 @@ if [[ ! -d "$MODELS_DIR/ggml-${MODEL}-encoder.mlmodelc" ]]; then
 fi
 
 # 5. Install the CLI globally — clone repo if not invoked from inside it
-if [[ -f "$(pwd)/pyproject.toml" ]] && grep -q '^name = "transcript-app"' "$(pwd)/pyproject.toml" 2>/dev/null; then
+if [[ -f "$(pwd)/pyproject.toml" ]] && grep -q '^name = "transcript-cli"' "$(pwd)/pyproject.toml" 2>/dev/null; then
   REPO_DIR="$(pwd)"
 else
-  REPO_DIR="$DATA_DIR/transcript-app"
-  [[ -d "$REPO_DIR" ]] || git clone https://github.com/<you>/transcript-app "$REPO_DIR"
+  REPO_DIR="$DATA_DIR/transcript-cli"
+  [[ -d "$REPO_DIR" ]] || git clone https://github.com/<you>/transcript-cli "$REPO_DIR"
   ( cd "$REPO_DIR" && git pull --ff-only )
 fi
 # --python 3.11 is mandatory: pyproject.toml pins `requires-python = ">=3.11,<3.12"`
@@ -54,7 +54,7 @@ fi
 # even when requires-python forbids it.
 # --force re-installs the tool; --reinstall forces a fresh wheel build from source
 # (without it, uv reuses the cached 0.1.0 wheel and source-only changes don't ship).
-uv tool install --python 3.11 --force --reinstall --from "$REPO_DIR" transcript-app
+uv tool install --python 3.11 --force --reinstall --from "$REPO_DIR" transcript-cli
 
 # 6. Smoke check
 echo
