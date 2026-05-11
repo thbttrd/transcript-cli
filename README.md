@@ -20,7 +20,7 @@ Oui, exactement, et je pense que…
 ## Quick install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<you>/transcript-app/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/thbttrd/transcript-cli/main/scripts/install.sh | bash
 ```
 
 After install: `transcript --doctor` to verify everything is in place.
@@ -121,8 +121,8 @@ Output goes to stdout, so Claude captures it directly. Use `-f json` if you want
 ## Development
 
 ```bash
-git clone https://github.com/<you>/transcript-app
-cd transcript-app
+git clone https://github.com/thbttrd/transcript-cli
+cd transcript-cli
 uv sync --all-extras
 
 # Unit tests (fast, no audio, no network)
