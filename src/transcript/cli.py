@@ -44,6 +44,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--no-diarize", action="store_true", help="Skip speaker labelling")
     p.add_argument("--speakers", type=int, default=None, help="Fix speaker count when known")
+    p.add_argument(
+        "--no-align",
+        action="store_true",
+        help="Skip forced word-alignment (otherwise on by default; uses ctc-forced-aligner + MMS-300m on MPS/CPU)",
+    )
+    p.add_argument(
+        "--llm-fix",
+        action="store_true",
+        help="Apply local-LLM speaker-label cleanup via Ollama (default off — alignment usually obsoletes it)",
+    )
     p.add_argument("-v", "--verbose", action="store_true", help="Show step-by-step progress")
     p.add_argument("-q", "--quiet", action="store_true", help="Suppress all progress")
     p.add_argument("--version", action="version", version=f"transcript {__version__}")
@@ -73,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
             language=args.language,
             with_diarization=not args.no_diarize,
             num_speakers=args.speakers,
+            with_align=not args.no_align,
+            with_llm_fix=args.llm_fix,
             format_name=args.format,
             with_timestamps=not args.no_timestamps,
             progress=progress,

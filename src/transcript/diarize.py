@@ -1,9 +1,26 @@
+import tempfile
 from pathlib import Path
 
 from transcript.models import Turn
 
 DIARIZER_LABEL = "NeMo Sortformer 4spk-v1"
 _NEMO_MODEL = "nvidia/diar_sortformer_4spk-v1"
+
+# NVIDIA's CallHome-tuned post-processing config for diar_sortformer_4spk-v1.
+# v2 was tried and reverted: it requires `SortformerModules.spkcache_len`, added in
+# a NeMo release newer than our pin (2.2.1). Upgrading NeMo cascades into the
+# transformers pin, breaking the alignment integration.
+# Source: NeMo/examples/speaker_tasks/diarization/conf/post_processing/
+#         sortformer_diar_4spk-v1_callhome-part1.yaml
+_POSTPROC_YAML = """\
+parameters:
+  onset: 0.53
+  offset: 0.49
+  pad_onset: 0.23
+  pad_offset: 0.01
+  min_duration_on: 0.42
+  min_duration_off: 0.34
+"""
 
 
 class DiarizeError(RuntimeError):
@@ -53,7 +70,14 @@ def run(wav_path: Path, *, num_speakers: int | None) -> list[Turn]:
         raise DiarizeError(f"could not load NeMo Sortformer: {e}") from e
     model.train(False)
 
-    results = model.diarize(audio=[str(wav_path)], batch_size=1)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        postproc_path = Path(tmpdir) / "callhome_postproc.yaml"
+        postproc_path.write_text(_POSTPROC_YAML)
+        results = model.diarize(
+            audio=[str(wav_path)],
+            batch_size=1,
+            postprocessing_yaml=str(postproc_path),
+        )
     raw_lines = results[0] if results else []
     raw = _parse_sortformer_segments(raw_lines)
 

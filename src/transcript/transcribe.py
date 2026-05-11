@@ -12,24 +12,39 @@ class TranscribeError(RuntimeError):
 
 
 def _parse_words(data: dict) -> list[Word]:
-    """Pull word-level tokens out of whisper.cpp's --output-json-full payload."""
+    """Pull word-level segments out of whisper.cpp's --output-json-full payload.
+
+    Whisper.cpp runs with `--max-len 1 --split-on-word`, so each *segment* is one
+    word — possibly several BPE tokens long ("Chouchou" → "Ch" + "ouch" + "ou").
+    Consume segment text directly; iterating per-token would let diarization
+    scatter the pieces of a single word across different speakers.
+    """
     words: list[Word] = []
     for segment in data.get("transcription", []):
-        for tok in segment.get("tokens", []):
-            text: str = tok.get("text", "")
-            stripped = text.strip()
-            # Skip whisper's special marker tokens like [_BEG_], [_TT_3], etc.
-            if not stripped or stripped.startswith("[_"):
-                continue
-            offsets = tok.get("offsets", {})
-            start_ms = int(offsets.get("from", 0))
-            end_ms = int(offsets.get("to", 0))
-            words.append(Word(text=text, start=start_ms / 1000.0, end=end_ms / 1000.0))
+        text: str = segment.get("text", "")
+        stripped = text.strip()
+        # Skip whisper's special marker segments like [_BEG_], [_TT_3], etc.
+        if not stripped or stripped.startswith("[_"):
+            continue
+        offsets = segment.get("offsets", {})
+        start_ms = int(offsets.get("from", 0))
+        end_ms = int(offsets.get("to", 0))
+        words.append(Word(text=text, start=start_ms / 1000.0, end=end_ms / 1000.0))
     return words
 
 
-def run(wav_path: Path, *, model: str, language: str | None) -> list[Word]:
-    """Transcribe a 16 kHz mono WAV using whisper.cpp; return word-level Words."""
+def _detected_language(data: dict, fallback: str | None) -> str:
+    """Pull the language whisper.cpp actually used (after auto-detect if applicable)."""
+    return data.get("result", {}).get("language") or fallback or "auto"
+
+
+def run(wav_path: Path, *, model: str, language: str | None) -> tuple[list[Word], str]:
+    """Transcribe a 16 kHz mono WAV using whisper.cpp.
+
+    Returns (words, language) where `language` is the ISO 639-1 code whisper.cpp
+    actually used — either the explicit `language` arg, or what whisper detected
+    from the first 30 s of audio when `language=None` was passed.
+    """
     binary = config.whisper_binary()
     if not binary.exists():
         raise TranscribeError(
@@ -50,6 +65,14 @@ def run(wav_path: Path, *, model: str, language: str | None) -> list[Word]:
             "-l", language or "auto",
             "-ml", "1",
             "--split-on-word",
+            # Disable temperature fallback (default retries at temp 0.2, 0.4, …
+            # when logprob/compression checks fail). Fallbacks are the main
+            # source of hallucinations on hard audio — better to occasionally
+            # drop a tricky sentence than to confabulate one.
+            "--no-fallback",
+            # Suppress non-speech tokens — reduces noise/music → French
+            # confabulation, including spurious "La la la" runs from singing.
+            "--suppress-nst",
             "-ojf",
             "-of", str(out_prefix),
             "--no-prints",
@@ -62,4 +85,4 @@ def run(wav_path: Path, *, model: str, language: str | None) -> list[Word]:
 
         json_file = Path(str(out_prefix) + ".json")
         data = json.loads(json_file.read_text())
-        return _parse_words(data)
+        return _parse_words(data), _detected_language(data, language)

@@ -11,12 +11,15 @@ def _setup_mocks(mocker, tmp_path):
     mocker.patch("transcript.pipeline.audio.prepare", return_value=(prepared, 5.0))
     mocker.patch(
         "transcript.pipeline.transcribe.run",
-        return_value=[Word(" hi", 0.0, 1.0), Word(" there", 2.0, 3.0)],
+        return_value=([Word(" hi", 0.0, 1.0), Word(" there", 2.0, 3.0)], "fr"),
     )
     mocker.patch(
         "transcript.pipeline.diarize.run",
         return_value=[Turn("Speaker 1", 0.0, 1.5), Turn("Speaker 2", 1.5, 3.0)],
     )
+    mocker.patch("transcript.pipeline.llm_fix.is_available", return_value=False)
+    # Default: don't load the real aligner in tests. Tests that need it can override.
+    mocker.patch("transcript.pipeline.align.is_available", return_value=False)
     return wav
 
 
@@ -90,6 +93,114 @@ def test_pipeline_meta_reflects_inputs(tmp_path, mocker):
     assert data["meta"]["language"] == "fr"
     assert data["meta"]["duration"] == 5.0
     assert data["meta"]["speaker_count"] == 2  # two distinct speakers in fixture turns
+
+
+def test_pipeline_calls_llm_fix_when_enabled_and_available(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    mocker.patch("transcript.pipeline.llm_fix.is_available", return_value=True)
+    spy = mocker.patch(
+        "transcript.pipeline.llm_fix.apply",
+        side_effect=lambda pairs, **_: pairs,
+    )
+    pipeline.run(
+        audio_path=wav,
+        model="large-v3",
+        language="fr",
+        with_diarization=True,
+        num_speakers=2,
+        format_name="md",
+        with_timestamps=True,
+        with_llm_fix=True,
+    )
+    spy.assert_called_once()
+
+
+def test_pipeline_skips_llm_fix_by_default(tmp_path, mocker):
+    """Regression: LLM cleanup is opt-in. Default pipeline must not call it."""
+    wav = _setup_mocks(mocker, tmp_path)
+    mocker.patch("transcript.pipeline.llm_fix.is_available", return_value=True)
+    spy = mocker.patch("transcript.pipeline.llm_fix.apply")
+    pipeline.run(
+        audio_path=wav,
+        model="large-v3",
+        language="fr",
+        with_diarization=True,
+        num_speakers=2,
+        format_name="md",
+        with_timestamps=True,
+    )
+    spy.assert_not_called()
+
+
+def test_pipeline_skips_llm_fix_when_unavailable(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    spy = mocker.patch("transcript.pipeline.llm_fix.apply")
+    pipeline.run(
+        audio_path=wav,
+        model="large-v3",
+        language="fr",
+        with_diarization=True,
+        num_speakers=None,
+        format_name="md",
+        with_timestamps=True,
+        with_llm_fix=True,
+    )
+    spy.assert_not_called()
+
+
+def test_pipeline_calls_align_when_available(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    mocker.patch("transcript.pipeline.align.is_available", return_value=True)
+    spy = mocker.patch(
+        "transcript.pipeline.align.run",
+        side_effect=lambda _wav, words, **_: words,
+    )
+    pipeline.run(
+        audio_path=wav,
+        model="large-v3",
+        language="fr",
+        with_diarization=True,
+        num_speakers=None,
+        format_name="md",
+        with_timestamps=True,
+    )
+    spy.assert_called_once()
+    _, kwargs = spy.call_args
+    assert kwargs["language"] == "fr"  # detected_lang flows through
+
+
+def test_pipeline_respects_no_align(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    mocker.patch("transcript.pipeline.align.is_available", return_value=True)
+    spy = mocker.patch("transcript.pipeline.align.run")
+    pipeline.run(
+        audio_path=wav,
+        model="large-v3",
+        language="fr",
+        with_diarization=True,
+        num_speakers=None,
+        format_name="md",
+        with_timestamps=True,
+        with_align=False,
+    )
+    spy.assert_not_called()
+
+
+def test_pipeline_skips_llm_fix_when_no_diarize(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    mocker.patch("transcript.pipeline.llm_fix.is_available", return_value=True)
+    spy = mocker.patch("transcript.pipeline.llm_fix.apply")
+    pipeline.run(
+        audio_path=wav,
+        model="large-v3",
+        language="fr",
+        with_diarization=False,
+        num_speakers=None,
+        format_name="md",
+        with_timestamps=True,
+        with_llm_fix=True,
+    )
+    spy.assert_not_called()
 
 
 def test_pipeline_cleans_up_temp_wav(tmp_path, mocker):

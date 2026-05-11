@@ -30,9 +30,14 @@ def _best_speaker(word: Word, turns: list[Turn]) -> str:
     return latest_turn.speaker  # type: ignore[union-attr]
 
 
-def assign(words: list[Word], turns: list[Turn]) -> list[Utterance]:
-    """Assign each word to a speaker (max overlap, fall back to upcoming turn), then collapse runs."""
-    if not words:
+def assign_speakers(words: list[Word], turns: list[Turn]) -> list[tuple[Word, str]]:
+    """Per-word speaker assignment (max overlap → upcoming-turn fallback)."""
+    return [(w, _best_speaker(w, turns)) for w in words]
+
+
+def collapse(word_speakers: list[tuple[Word, str]]) -> list[Utterance]:
+    """Collapse consecutive same-speaker words into utterances."""
+    if not word_speakers:
         return []
 
     utterances: list[Utterance] = []
@@ -51,8 +56,7 @@ def assign(words: list[Word], turns: list[Turn]) -> list[Utterance]:
             )
         )
 
-    for word in words:
-        speaker = _best_speaker(word, turns)
+    for word, speaker in word_speakers:
         if speaker != current_speaker and current_words:
             flush()
             current_words = []
@@ -61,3 +65,8 @@ def assign(words: list[Word], turns: list[Turn]) -> list[Utterance]:
 
     flush()
     return utterances
+
+
+def assign(words: list[Word], turns: list[Turn]) -> list[Utterance]:
+    """One-shot: assign per-word speakers, then collapse to utterances."""
+    return collapse(assign_speakers(words, turns))

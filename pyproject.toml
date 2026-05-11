@@ -16,6 +16,15 @@ dependencies = [
     # NeMo 2.2.1 calls np.sctypes (removed in numpy 2.0) in its audio
     # preprocessing path. Pin numpy<2 until NeMo updates.
     "numpy==1.26.4",
+    # Forced word-alignment via Meta's MMS-300m (1100+ languages, one model).
+    # Refines whisper.cpp's DTW-based word timestamps to sub-100 ms — fixes the
+    # imprecise word boundaries that cause downstream diarization to scatter
+    # words across the wrong speakers. PyPI publishes a different `ctc-forced-aligner`
+    # (deskpai's ONNX repackage), so we install MahmoudAshraf97's via git.
+    # Note: this package's recent versions call `from_pretrained(dtype=...)`,
+    # which requires transformers >=4.50 — NeMo pins us to <=4.48.3. We bypass
+    # the broken `load_alignment_model` helper in transcript/align.py.
+    "ctc-forced-aligner @ git+https://github.com/MahmoudAshraf97/ctc-forced-aligner.git",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +44,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/transcript"]
+
+# Required for the `ctc-forced-aligner @ git+...` dependency above — hatch
+# rejects direct URL references in dependencies otherwise.
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

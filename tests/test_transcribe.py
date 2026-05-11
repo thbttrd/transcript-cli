@@ -25,6 +25,30 @@ def test_parse_words_skips_special_tokens():
     assert all("[_" not in w.text for w in words)
 
 
+def test_parse_words_keeps_multi_token_words_together():
+    """Regression: whisper.cpp `-ml 1 --split-on-word` emits one *segment* per
+    word, but a single word may comprise multiple BPE tokens (e.g. "Chouchou"
+    → "Ch" + "ouch" + "ou"). We must consume segment text, not per-token text,
+    or downstream diarization will scatter sub-word pieces across speakers.
+    """
+    data = {
+        "transcription": [
+            {
+                "offsets": {"from": 300, "to": 930},
+                "text": " Chouchou,",
+                "tokens": [
+                    {"text": " Ch", "offsets": {"from": 300, "to": 420}},
+                    {"text": "ouch", "offsets": {"from": 420, "to": 620}},
+                    {"text": "ou", "offsets": {"from": 690, "to": 780}},
+                    {"text": ",", "offsets": {"from": 780, "to": 830}},
+                ],
+            },
+        ],
+    }
+    words = transcribe._parse_words(data)
+    assert words == [Word(text=" Chouchou,", start=0.30, end=0.93)]
+
+
 def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
     wav = tmp_path / "in.wav"
     wav.write_bytes(b"")
@@ -42,9 +66,10 @@ def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
         return mocker.Mock(returncode=0)
 
     mock_run = mocker.patch("transcript.transcribe.subprocess.run", side_effect=fake_run)
-    words = transcribe.run(wav, model="large-v3", language="fr")
+    words, detected_lang = transcribe.run(wav, model="large-v3", language="fr")
 
     assert len(words) == 2
+    assert detected_lang == "fr"
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "/fake/main"
     assert "-m" in cmd and "/fake/ggml-large-v3.bin" in cmd
@@ -52,6 +77,8 @@ def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
     assert "-l" in cmd and "fr" in cmd
     assert "-ml" in cmd and "1" in cmd
     assert "--split-on-word" in cmd
+    assert "--no-fallback" in cmd
+    assert "--suppress-nst" in cmd
     assert "-ojf" in cmd or "--output-json-full" in cmd
 
 
