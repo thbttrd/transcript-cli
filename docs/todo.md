@@ -16,18 +16,17 @@ Targets the two residual error patterns left after alignment:
 
 No new deps, no version bumps — Sortformer v1 already supports the tensor output mode. Probably obsoletes the LLM-cleanup path entirely on real audio.
 
-## 2. Sortformer v2 / v2.1 (after a NeMo upgrade)
+## 2. Sortformer v2.1 — DONE
 
-Attempted and reverted (see commit history). `nvidia/diar_streaming_sortformer_4spk-v2` needs `SortformerModules.spkcache_len` — a config field for the streaming speaker cache, introduced in a NeMo release newer than our pin `nemo_toolkit==2.2.1`.
+Shipped: `nvidia/diar_streaming_sortformer_4spk-v2.1` via NeMo 2.7.3, configured
+with the "very-high-latency" preset (chunk_len=340, RTF≈0.002). Removes the v1
+~12-minute ceiling — streaming chunks handle arbitrarily long audio.
 
-Blocker: upgrading NeMo moves its own `transformers<=4.48.3` pin forward, which breaks the alignment loading path (`ctc-forced-aligner` calls `from_pretrained(dtype=...)` — works only on transformers ≥4.50, but our compat shim in `align.py:_load_model` uses `torch_dtype=` which is the pre-4.50 alias).
-
-Path forward:
-1. Pick a NeMo version that supports v2 *and* exposes a transformers pin ≤4.48.3 — unlikely; would need to read NeMo changelogs.
-2. Or accept the transformers bump and update `align.py:_load_model` to use the new `dtype=` kwarg, rewriting the compat shim.
-3. Or pin a specific git revision of `ctc-forced-aligner` from before they switched to `dtype=`.
-
-Worth doing only if (1) above doesn't close the residual error gap.
+The blocker described here originally (transformers ≤4.48.3 vs ≥4.50) turned
+out to be illusory: transformers 4.57.6 (pulled in by NeMo 2.7.3) keeps
+`torch_dtype=` backward-compatible (deprecation warning only), so `align.py`'s
+manual model load still works unchanged. Optional follow-up: switch to `dtype=`
+to silence the warning.
 
 ## 3. Quantitative evaluation on real datasets
 

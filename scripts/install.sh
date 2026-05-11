@@ -49,8 +49,9 @@ else
   [[ -d "$REPO_DIR" ]] || git clone https://github.com/<you>/transcript-app "$REPO_DIR"
   ( cd "$REPO_DIR" && git pull --ff-only )
 fi
-# --python 3.11 is mandatory: torch 2.4.1 only ships cp310/cp311/cp312 wheels,
-# and older uv versions can pick 3.13/3.14 even when requires-python forbids it.
+# --python 3.11 is mandatory: pyproject.toml pins `requires-python = ">=3.11,<3.12"`
+# for runtime reproducibility, and older uv versions can pick newer interpreters
+# even when requires-python forbids it.
 # --force re-installs the tool; --reinstall forces a fresh wheel build from source
 # (without it, uv reuses the cached 0.1.0 wheel and source-only changes don't ship).
 uv tool install --python 3.11 --force --reinstall --from "$REPO_DIR" transcript-app

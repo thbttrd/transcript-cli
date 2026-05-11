@@ -1,14 +1,14 @@
 # transcript
 
 Local voice-memo transcription with speaker diarization on Apple Silicon Macs.
-Pairs **whisper.cpp** (CoreML + Metal + ANE) with **NeMo Sortformer 4spk-v1** (CPU) and merges
-their output into a markdown transcript. Audio never leaves your machine.
+Pairs **whisper.cpp** (CoreML + Metal + ANE) with **NeMo Streaming Sortformer 4spk-v2.1** (CPU)
+and merges their output into a markdown transcript. Audio never leaves your machine.
 
 ```
 $ transcript interview.m4a
 # interview.m4a
 
-> Transcribed with whisper.cpp large-v3 (fr) + NeMo Sortformer 4spk-v1 · 2 speakers · 12m34s
+> Transcribed with whisper.cpp large-v3 (fr) + NeMo Streaming Sortformer 4spk-v2.1 · 2 speakers · 12m34s
 
 ## Speaker 1 [00:00]
 Bonjour, nous allons parler de…
@@ -66,8 +66,8 @@ mkdir -p ~/.local/share/transcript/models
 mv models/ggml-large-v3.bin ~/.local/share/transcript/models/
 mv models/ggml-large-v3-encoder.mlmodelc ~/.local/share/transcript/models/
 
-# Install the CLI — pin Python 3.11; torch 2.4.1 has no cp313/cp314 wheels.
-# NeMo Sortformer weights (~120 MB) download lazily on first run.
+# Install the CLI — pin Python 3.11 per pyproject's requires-python.
+# NeMo Streaming Sortformer weights (~120 MB) download lazily on first run.
 git clone https://github.com/<you>/transcript-app
 cd transcript-app
 uv tool install --python 3.11 --force --from "$(pwd)" transcript-app
@@ -104,7 +104,7 @@ Common issues:
 | Hangs at "transcribing" | First diarize run downloading model | Wait — Sortformer weights (~120 MB) cache to `~/.cache/huggingface/`, only downloaded once |
 | `--doctor` says CoreML encoder missing | Built without `WHISPER_COREML=1` | Re-run install script |
 | `ModuleNotFoundError: No module named 'torch'` during install | CoreML conversion deps not installed | Re-run install script (newer versions stand up an isolated venv at `~/.local/share/transcript/coreml-venv`) |
-| `torch>=…,<=2.4.1 has no wheels with a matching Python ABI tag` | `uv` picked Python 3.13+ where torch 2.4.1 has no wheels | Re-run install script — it now passes `--python 3.11` explicitly. If you used a custom command, add `--python 3.11` to `uv tool install` |
+| `torch>=…,==2.6.0 has no wheels with a matching Python ABI tag` | `uv` picked a Python version outside pyproject's `requires-python = ">=3.11,<3.12"` | Re-run install script — it now passes `--python 3.11` explicitly. If you used a custom command, add `--python 3.11` to `uv tool install` |
 | Integration tests skip "tiny.wav not generated" | Fixture not built yet | After install.sh, run `bash scripts/generate_tiny_wav.sh` to create the test fixture |
 
 ## For Claude Code users

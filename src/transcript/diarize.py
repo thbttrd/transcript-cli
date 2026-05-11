@@ -1,26 +1,32 @@
-import tempfile
 from pathlib import Path
 
 from transcript.models import Turn
 
-DIARIZER_LABEL = "NeMo Sortformer 4spk-v1"
-_NEMO_MODEL = "nvidia/diar_sortformer_4spk-v1"
+DIARIZER_LABEL = "NeMo Streaming Sortformer 4spk-v2.1"
+_NEMO_MODEL = "nvidia/diar_streaming_sortformer_4spk-v2.1"
 
-# NVIDIA's CallHome-tuned post-processing config for diar_sortformer_4spk-v1.
-# v2 was tried and reverted: it requires `SortformerModules.spkcache_len`, added in
-# a NeMo release newer than our pin (2.2.1). Upgrading NeMo cascades into the
-# transformers pin, breaking the alignment integration.
-# Source: NeMo/examples/speaker_tasks/diarization/conf/post_processing/
-#         sortformer_diar_4spk-v1_callhome-part1.yaml
-_POSTPROC_YAML = """\
-parameters:
-  onset: 0.53
-  offset: 0.49
-  pad_onset: 0.23
-  pad_offset: 0.01
-  min_duration_on: 0.42
-  min_duration_off: 0.34
-"""
+# Streaming Sortformer v2.1 processes audio in chunks of `chunk_len` frames
+# (1 frame = 80 ms), so there's no fixed audio-length ceiling — the v1
+# non-streaming path topped out around 12 min on consumer hardware.
+#
+# Two presets exist in NVIDIA's model card. We pick the "very high latency"
+# one: this is a batch CLI, not a real-time stream, so we trade time-to-first-
+# result (which we don't care about) for ~45× lower RTF and longer chunks
+# (340 frames ≈ 27 s) that should give the model more context per decision.
+#
+#   |               | latency | RTF   | chunk | r-ctx | fifo | upd | cache |
+#   | very-high-lat | 30.4 s  | 0.002 |  340  |  40   |  40  | 300 |  188  |
+#   | low-latency   |  1.04 s | 0.093 |    6  |   7   | 188  | 144 |  188  |
+_STREAMING_PARAMS = {
+    "chunk_len": 340,
+    "chunk_right_context": 40,
+    "fifo_len": 40,
+    # NVIDIA's published preset is 300, but NeMo clamps the effective value to
+    # at least chunk_len at runtime — passing 340 directly silences the
+    # "less than chunk_len" warning without changing behavior.
+    "spkcache_update_period": 340,
+    "spkcache_len": 188,
+}
 
 
 class DiarizeError(RuntimeError):
@@ -55,7 +61,7 @@ def _parse_sortformer_segments(segments: list[str]) -> list[tuple[float, float, 
 
 
 def run(wav_path: Path, *, num_speakers: int | None) -> list[Turn]:
-    """Diarize `wav_path` with NeMo Sortformer; return Turns labeled Speaker 1..N."""
+    """Diarize `wav_path` with NeMo Streaming Sortformer; return Turns labeled Speaker 1..N."""
     try:
         from nemo.collections.asr.models import SortformerEncLabelModel
     except ImportError as e:
@@ -63,25 +69,24 @@ def run(wav_path: Path, *, num_speakers: int | None) -> list[Turn]:
             "nemo_toolkit not installed. Re-run scripts/install.sh."
         ) from e
 
-    # NeMo's MPS autocast path is broken in 2.2.1; CPU runs in seconds anyway.
+    # NeMo's MPS autocast path was broken in 2.2.1; we kept CPU for v2.x too —
+    # the streaming chunks are small enough that CPU stays well under real-time.
     try:
         model = SortformerEncLabelModel.from_pretrained(_NEMO_MODEL, map_location="cpu")
     except Exception as e:
         raise DiarizeError(f"could not load NeMo Sortformer: {e}") from e
     model.train(False)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        postproc_path = Path(tmpdir) / "callhome_postproc.yaml"
-        postproc_path.write_text(_POSTPROC_YAML)
-        results = model.diarize(
-            audio=[str(wav_path)],
-            batch_size=1,
-            postprocessing_yaml=str(postproc_path),
-        )
+    m = model.sortformer_modules
+    for k, v in _STREAMING_PARAMS.items():
+        setattr(m, k, v)
+    m._check_streaming_parameters()
+
+    results = model.diarize(audio=[str(wav_path)], batch_size=1)
     raw_lines = results[0] if results else []
     raw = _parse_sortformer_segments(raw_lines)
 
-    # Sortformer 4spk-v1 always emits up to 4 labels. If the user fixed --speakers
+    # Sortformer 4spk always emits up to 4 labels. If the user fixed --speakers
     # below 4, drop turns labeled beyond that count by first-appearance order.
     turns = _relabel(raw)
     if num_speakers is not None:
