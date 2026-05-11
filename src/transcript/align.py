@@ -11,15 +11,14 @@ helper because its recent versions call `from_pretrained(dtype=...)`, which
 requires transformers >=4.50. We're pinned to 4.48.3 (NeMo 2.2.1 constraint),
 so we load the model ourselves using the older `torch_dtype=` alias.
 """
-import os
 import sys
-import tempfile
 from pathlib import Path
 
+from transcript import _debug
 from transcript.models import Word
 
 _MODEL_PATH = "MahmoudAshraf/mms-300m-1130-forced-aligner"
-_DEBUG_LOG = os.path.join(tempfile.gettempdir(), "transcript-align.log")
+_DEBUG_LOG = _debug.log_path("align")
 
 # Whisper uses ISO 639-1 (2-letter); the MMS aligner expects ISO 639-3 (3-letter).
 # Covers the top ~30 Whisper-supported languages; unknown codes pass through and
@@ -138,8 +137,4 @@ def _strip_punct_edges(s: str) -> str:
 
 
 def _log(msg: str) -> None:
-    try:
-        with open(_DEBUG_LOG, "a") as f:
-            f.write(f"{msg}\n")
-    except OSError:
-        pass
+    _debug.write(_DEBUG_LOG, f"{msg}\n", append=True)

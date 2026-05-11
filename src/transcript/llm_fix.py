@@ -9,14 +9,13 @@ the whole array back. Falls through on any failure but writes a diagnostic log
 to `$TMPDIR/transcript-llm-fix.log` so silent failures can be inspected.
 """
 import json
-import os
 import re
 import shutil
 import sys
-import tempfile
 import urllib.error
 import urllib.request
 
+from transcript import _debug
 from transcript.models import Word
 
 _OLLAMA_BINARY = "ollama"
@@ -24,7 +23,7 @@ _OLLAMA_URL = "http://localhost:11434/api/generate"
 # Edit if your local Ollama tag differs (e.g. `gemma4:26b-a4b`).
 _MODEL = "gemma4:e4b"
 _TIMEOUT_S = 60
-_DEBUG_LOG = os.path.join(tempfile.gettempdir(), "transcript-llm-fix.log")
+_DEBUG_LOG = _debug.log_path("llm-fix")
 
 # A "flips-only" contract: the model lists indices whose speaker label is wrong,
 # instead of re-emitting the whole corrected array. Far easier for a 4.5 B model
@@ -92,34 +91,11 @@ def apply(
         payload=json.dumps(payload, ensure_ascii=False),
     )
 
-    # Constrained-decoding schema: forces Ollama to emit exactly this shape.
-    # Without this, Gemma 4 E4B happily returns a single dict instead of an
-    # object containing a flips array.
-    schema = {
-        "type": "object",
-        "required": ["flips"],
-        "additionalProperties": False,
-        "properties": {
-            "flips": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["i", "spk"],
-                    "additionalProperties": False,
-                    "properties": {
-                        "i": {"type": "integer", "minimum": 0, "maximum": len(word_speakers) - 1},
-                        "spk": {"type": "integer", "minimum": 0, "maximum": 4},
-                    },
-                },
-            },
-        },
-    }
-
     body = json.dumps({
         "model": _MODEL,
         "system": _SYSTEM_PROMPT,
         "prompt": user_prompt,
-        "format": schema,
+        "format": _build_response_schema(len(word_speakers)),
         "stream": False,
         "options": {"temperature": 0},
         "keep_alive": "5m",
@@ -166,33 +142,56 @@ def apply(
 
 def _log_failure(reason: str, prompt: str, *, response_text: str = "", error_detail: str = "") -> None:
     print(f"⚠ LLM cleanup failed ({reason}); falling back to un-corrected output. See {_DEBUG_LOG}.", file=sys.stderr)
-    try:
-        with open(_DEBUG_LOG, "w") as f:
-            f.write(f"=== LLM FIX FAILURE: {reason} ===\n")
-            f.write(f"model: {_MODEL}\nendpoint: {_OLLAMA_URL}\n")
-            f.write("\n--- prompt ---\n")
-            f.write(prompt)
-            if response_text:
-                f.write("\n--- response ---\n")
-                f.write(response_text)
-            if error_detail:
-                f.write("\n--- error detail ---\n")
-                f.write(error_detail)
-    except OSError:
-        pass
+    sections = [
+        f"=== LLM FIX FAILURE: {reason} ===",
+        f"model: {_MODEL}",
+        f"endpoint: {_OLLAMA_URL}",
+        "",
+        "--- prompt ---",
+        prompt,
+    ]
+    if response_text:
+        sections += ["--- response ---", response_text]
+    if error_detail:
+        sections += ["--- error detail ---", error_detail]
+    _debug.write(_DEBUG_LOG, "\n".join(sections))
 
 
 def _log_success(prompt: str, response_text: str, *, flips: int, total: int) -> None:
-    try:
-        with open(_DEBUG_LOG, "w") as f:
-            f.write(f"=== LLM FIX SUCCESS: {flips}/{total} words flipped ===\n")
-            f.write(f"model: {_MODEL}\n")
-            f.write("\n--- prompt ---\n")
-            f.write(prompt)
-            f.write("\n--- response ---\n")
-            f.write(response_text)
-    except OSError:
-        pass
+    sections = [
+        f"=== LLM FIX SUCCESS: {flips}/{total} words flipped ===",
+        f"model: {_MODEL}",
+        "",
+        "--- prompt ---",
+        prompt,
+        "--- response ---",
+        response_text,
+    ]
+    _debug.write(_DEBUG_LOG, "\n".join(sections))
+
+
+def _build_response_schema(n_words: int) -> dict:
+    """Ollama constrained-decoding schema. Without it, Gemma 4 E4B happily returns
+    a single dict instead of the `{flips: [...]}` envelope we need."""
+    return {
+        "type": "object",
+        "required": ["flips"],
+        "additionalProperties": False,
+        "properties": {
+            "flips": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["i", "spk"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "i": {"type": "integer", "minimum": 0, "maximum": n_words - 1},
+                        "spk": {"type": "integer", "minimum": 0, "maximum": 4},
+                    },
+                },
+            },
+        },
+    }
 
 
 def _parse_flips(text: str, *, n_words: int) -> list[tuple[int, int]] | None:
@@ -223,7 +222,6 @@ def _parse_flips(text: str, *, n_words: int) -> list[tuple[int, int]] | None:
 
 
 def _spk_to_int(label: str) -> int:
-    # "Speaker 1" -> 1, "Speaker 2" -> 2, "Unknown" -> 0
     if label == "Unknown":
         return 0
     try:
