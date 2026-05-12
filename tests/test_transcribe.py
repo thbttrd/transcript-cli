@@ -6,6 +6,7 @@ import pytest
 
 from transcript import transcribe
 from transcript.models import Word
+from transcript.pipeline_config import TranscribeConfig
 
 FIXTURE = Path(__file__).parent / "fixtures" / "whisper_output_sample.json"
 
@@ -52,9 +53,9 @@ def test_parse_words_keeps_multi_token_words_together():
 def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
     wav = tmp_path / "in.wav"
     wav.write_bytes(b"")
-    mocker.patch("transcript.transcribe.config.whisper_binary", return_value=Path("/fake/main"))
+    mocker.patch("transcript.transcribe.transcript_config.whisper_binary", return_value=Path("/fake/main"))
     mocker.patch(
-        "transcript.transcribe.config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
+        "transcript.transcribe.transcript_config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
     )
     mocker.patch("transcript.transcribe.Path.exists", return_value=True)
     out_json = tmp_path / "out.json"
@@ -66,7 +67,7 @@ def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
         return mocker.Mock(returncode=0)
 
     mock_run = mocker.patch("transcript.transcribe.subprocess.run", side_effect=fake_run)
-    words, detected_lang = transcribe.run(wav, model="large-v3", language="fr")
+    words, detected_lang = transcribe.run(wav, config=TranscribeConfig(language="fr"))
 
     assert len(words) == 2
     assert detected_lang == "fr"
@@ -85,9 +86,9 @@ def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
 def test_run_auto_language_when_none(tmp_path, mocker):
     wav = tmp_path / "in.wav"
     wav.write_bytes(b"")
-    mocker.patch("transcript.transcribe.config.whisper_binary", return_value=Path("/fake/main"))
+    mocker.patch("transcript.transcribe.transcript_config.whisper_binary", return_value=Path("/fake/main"))
     mocker.patch(
-        "transcript.transcribe.config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
+        "transcript.transcribe.transcript_config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
     )
     mocker.patch("transcript.transcribe.Path.exists", return_value=True)
 
@@ -97,7 +98,7 @@ def test_run_auto_language_when_none(tmp_path, mocker):
         return mocker.Mock(returncode=0)
 
     mock_run = mocker.patch("transcript.transcribe.subprocess.run", side_effect=fake_run)
-    transcribe.run(wav, model="large-v3", language=None)
+    transcribe.run(wav, config=TranscribeConfig(language=None))
     cmd = mock_run.call_args[0][0]
     assert "-l" in cmd and "auto" in cmd
 
@@ -106,22 +107,80 @@ def test_run_missing_binary_raises(tmp_path, mocker):
     wav = tmp_path / "in.wav"
     wav.write_bytes(b"")
     mocker.patch(
-        "transcript.transcribe.config.whisper_binary", return_value=Path("/nope/main")
+        "transcript.transcribe.transcript_config.whisper_binary", return_value=Path("/nope/main")
     )
     with pytest.raises(transcribe.TranscribeError, match="not found"):
-        transcribe.run(wav, model="large-v3", language="fr")
+        transcribe.run(wav, config=TranscribeConfig(language="fr"))
 
 
 def test_run_propagates_whisper_failure(tmp_path, mocker):
     import subprocess as sp
     wav = tmp_path / "in.wav"
     wav.write_bytes(b"")
-    mocker.patch("transcript.transcribe.config.whisper_binary", return_value=Path("/fake/main"))
+    mocker.patch("transcript.transcribe.transcript_config.whisper_binary", return_value=Path("/fake/main"))
     mocker.patch(
-        "transcript.transcribe.config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
+        "transcript.transcribe.transcript_config.whisper_model", return_value=Path("/fake/ggml-large-v3.bin")
     )
     mocker.patch("transcript.transcribe.Path.exists", return_value=True)
     err = sp.CalledProcessError(1, "main", stderr=b"failed badly")
     mocker.patch("transcript.transcribe.subprocess.run", side_effect=err)
     with pytest.raises(transcribe.TranscribeError, match="failed badly"):
-        transcribe.run(wav, model="large-v3", language="fr")
+        transcribe.run(wav, config=TranscribeConfig(language="fr"))
+
+
+def test_run_respects_no_fallback_flag(tmp_path, mocker):
+    wav = tmp_path / "in.wav"
+    wav.write_bytes(b"")
+    mocker.patch("transcript.transcribe.transcript_config.whisper_binary", return_value=Path("/fake/main"))
+    mocker.patch("transcript.transcribe.transcript_config.whisper_model", return_value=Path("/fake/m.bin"))
+    mocker.patch("transcript.transcribe.Path.exists", return_value=True)
+
+    def fake_run(cmd, *args, **kwargs):
+        json_file = Path(cmd[cmd.index("-of") + 1] + ".json")
+        json_file.write_text(FIXTURE.read_text())
+        return mocker.Mock(returncode=0)
+
+    mock_run = mocker.patch("transcript.transcribe.subprocess.run", side_effect=fake_run)
+    cfg = TranscribeConfig(language="fr", no_fallback=False)
+    transcribe.run(wav, config=cfg)
+    cmd = mock_run.call_args[0][0]
+    assert "--no-fallback" not in cmd
+
+
+def test_run_respects_suppress_nst_flag(tmp_path, mocker):
+    wav = tmp_path / "in.wav"
+    wav.write_bytes(b"")
+    mocker.patch("transcript.transcribe.transcript_config.whisper_binary", return_value=Path("/fake/main"))
+    mocker.patch("transcript.transcribe.transcript_config.whisper_model", return_value=Path("/fake/m.bin"))
+    mocker.patch("transcript.transcribe.Path.exists", return_value=True)
+
+    def fake_run(cmd, *args, **kwargs):
+        json_file = Path(cmd[cmd.index("-of") + 1] + ".json")
+        json_file.write_text(FIXTURE.read_text())
+        return mocker.Mock(returncode=0)
+
+    mock_run = mocker.patch("transcript.transcribe.subprocess.run", side_effect=fake_run)
+    cfg = TranscribeConfig(language="fr", suppress_nst=False)
+    transcribe.run(wav, config=cfg)
+    cmd = mock_run.call_args[0][0]
+    assert "--suppress-nst" not in cmd
+
+
+def test_run_passes_temperature(tmp_path, mocker):
+    wav = tmp_path / "in.wav"
+    wav.write_bytes(b"")
+    mocker.patch("transcript.transcribe.transcript_config.whisper_binary", return_value=Path("/fake/main"))
+    mocker.patch("transcript.transcribe.transcript_config.whisper_model", return_value=Path("/fake/m.bin"))
+    mocker.patch("transcript.transcribe.Path.exists", return_value=True)
+
+    def fake_run(cmd, *args, **kwargs):
+        json_file = Path(cmd[cmd.index("-of") + 1] + ".json")
+        json_file.write_text(FIXTURE.read_text())
+        return mocker.Mock(returncode=0)
+
+    mock_run = mocker.patch("transcript.transcribe.subprocess.run", side_effect=fake_run)
+    cfg = TranscribeConfig(language="fr", temperature=0.3)
+    transcribe.run(wav, config=cfg)
+    cmd = mock_run.call_args[0][0]
+    i = cmd.index("--temperature")
+    assert cmd[i + 1] == "0.3"
