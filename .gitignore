@@ -16,6 +16,7 @@ venv/
 .coverage.*
 htmlcov/
 .ruff_cache/
+.hypothesis/
 
 # Editor
 .vscode/
