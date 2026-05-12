@@ -52,7 +52,9 @@ def _load_reference_utterances(stm_path: Path) -> list[Utterance]:
 def _run_cached(clip: BenchClip, cfg: PipelineConfig,
                 cache_dir: Path) -> tuple[list[Utterance], Meta, dict]:
     """Run the pipeline for one (clip x config), reading from / writing to the cache."""
-    timings = {"whisper_s": 0.0, "sortformer_s": 0.0, "align_s": 0.0, "merge_s": 0.0}
+    # -1.0 = stage was a cache hit (no measurement). 0.0 means it actually ran
+    # in sub-millisecond time (rare, but possible for the merge stage).
+    timings = {"whisper_s": -1.0, "sortformer_s": -1.0, "align_s": -1.0, "merge_s": -1.0}
 
     transcribe_cfg = replace(cfg.transcribe, language=clip.language)
     diarize_cfg = replace(cfg.diarize, num_speakers=clip.num_speakers)
