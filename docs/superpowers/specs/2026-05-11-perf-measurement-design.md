@@ -212,8 +212,10 @@ bench/
 │   ├── summ_re.py      # SUMM-RE loader + track-mixing + synth RTTM
 │   └── ami_rttm/       # Vendored RTTMs from BUTSpeechFIT/AMI-diarization-setup
 └── results/
-    ├── runs.csv        # Append-only, one row per (clip × config × tier)
-    └── leaderboard.md  # Auto-generated from runs.csv
+    ├── runs.csv                      # Append-only, one row per (clip × config × tier)
+    ├── leaderboard.md                # Auto-generated from runs.csv
+    ├── transcripts/<tier>/<clip>/<fp>.json   # hypothesis + reference utterances (git-ignored)
+    └── diffs/<tier>/<clip>/<fp>.json         # meeteval word-level diff + speaker swaps (git-ignored)
 
 scripts/
 └── benchmark.py        # Thin CLI entry that calls into bench/runner.py
@@ -362,12 +364,68 @@ tier, dataset, clip_id, config_id, config_fingerprint,
 no_fallback, suppress_nst, streaming_preset, align, merge_strategy,
 cpwer, wer, der, speaker_assignment_error_rate,
 runtime_s, whisper_s, sortformer_s, align_s, merge_s,
-git_sha, started_at, host
+git_sha, started_at, host,
+hypothesis_path, diff_path
 ```
 
 - One row per `(clip × config × tier)`.
 - Config flag columns denormalised for spreadsheet-pivot convenience.
-- Full meeteval JSON output (substitution / insertion / deletion breakdown) cached alongside the CSV at `bench/results/details/<run_id>.json` for drill-down — not surfaced in the leaderboard.
+- `hypothesis_path` and `diff_path` point to the per-row artefacts on disk (see next section).
+
+### Per-row artefacts for failure-mode analysis
+
+The CSV gives you metric numbers; the artefacts give you the *evidence* behind them. Persisted on disk for every `(clip × config × tier)` so post-hoc failure analysis — e.g. surveying where the best config still mislabels speakers, to design a future `llm_fix` prompt that targets those patterns — doesn't need to re-run the pipeline.
+
+```
+bench/results/
+├── runs.csv                                      # numerical index (committed)
+├── leaderboard.md                                # human-readable summary (committed)
+├── transcripts/<tier>/<clip_id>/<config_fingerprint>.json
+└── diffs/<tier>/<clip_id>/<config_fingerprint>.json
+```
+
+**`transcripts/<...>.json` schema:**
+
+```json
+{
+  "clip_id":           "SUMM-RE:001a_PARL",
+  "config_fingerprint":"a3f8c1b29e04",
+  "hypothesis": [
+    {"speaker": "Speaker 1", "start": 0.50, "end": 3.20, "text": "bonjour, nous allons parler de"},
+    {"speaker": "Speaker 2", "start": 3.30, "end": 5.80, "text": "oui, exactement"},
+    ...
+  ],
+  "reference": [
+    {"speaker": "Speaker A", "start": 0.50, "end": 3.20, "text": "bonjour nous allons parler de"},
+    ...
+  ]
+}
+```
+
+**`diffs/<...>.json` schema** — the meeteval-aligned word-level diff plus the cpWER speaker permutation:
+
+```json
+{
+  "clip_id":           "SUMM-RE:001a_PARL",
+  "config_fingerprint":"a3f8c1b29e04",
+  "speaker_permutation": {"Speaker 1": "Speaker A", "Speaker 2": "Speaker B"},
+  "word_ops": [
+    {"op": "equal",  "ref_word": "bonjour",   "hyp_word": "bonjour",   "ref_speaker": "A", "hyp_speaker": "A"},
+    {"op": "sub",    "ref_word": "allons",    "hyp_word": "allon",     "ref_speaker": "A", "hyp_speaker": "A"},
+    {"op": "speaker_swap", "ref_word": "oui", "hyp_word": "oui",       "ref_speaker": "B", "hyp_speaker": "A"},
+    ...
+  ],
+  "totals": {"sub": 14, "ins": 2, "del": 5, "speaker_swap": 8}
+}
+```
+
+The `speaker_swap` op is the load-bearing one for future llm_fix work: it tells you which words got the text right but the speaker wrong, and where in the conversation they sit. Aggregating these across many clips reveals the *patterns* — boundary words, short interjections, mid-sentence flips — that a tailored prompt can address.
+
+### Git policy for artefacts
+
+- `bench/results/runs.csv` and `leaderboard.md` are **committed** (small, useful index).
+- `bench/results/transcripts/` and `bench/results/diffs/` are **git-ignored by default** — tier-1 and tier-2 produce a lot of these and they'd bloat the repo.
+- After a tier-3 run, you can opt-in commit the tier-3 subset for the failure-mode analysis work: `git add -f bench/results/{transcripts,diffs}/tier-3/`. The leaderboard.md links to those paths so reviewers can navigate to the per-clip evidence behind any leaderboard row.
 
 ### Leaderboard
 
@@ -403,6 +461,7 @@ The CSV is the source of truth; the markdown is regeneratable from it at any tim
 | `tests/test_bench_tiers.py` | Tier-1 generates the full 32-config grid; tier-2 narrows correctly given seeded tier-1 results; tier-3 picks 3–5 finalists from tier-2 results |
 | `tests/test_summ_re_loader.py` | Track-mixing produces a 16 kHz mono WAV of expected length; synth RTTM lines match per-track segments; empty-track meetings skipped with logged warning |
 | `tests/test_merge_prob.py` | New prob-based merge: synthetic `[T×4]` tensor with sharp spike at speaker B for word frames assigns that speaker even when hard-boundary fallback says otherwise |
+| `tests/test_bench_artefacts.py` | Transcript + diff JSON files are written for every `(clip × config × tier)` triple; their paths match the CSV row's `hypothesis_path` / `diff_path`; `speaker_swap` ops are emitted whenever hypothesis text matches reference text but their post-permutation speaker labels differ |
 
 ### Integration tests (gated by `pytest -m integration`)
 
@@ -450,7 +509,7 @@ src/transcript/diarize.py                 (branches on streaming_preset; emit_pr
 src/transcript/align.py                   (reads enabled from AlignConfig)
 src/transcript/merge.py                   (new prob_based strategy alongside existing hard_boundary)
 src/transcript/cli.py                     (builds PipelineConfig from argparse, calls pipeline.run(config=...) then formats)
-.gitignore                                (add bench/cache/)
+.gitignore                                (add bench/cache/, bench/results/transcripts/, bench/results/diffs/)
 
 UNCHANGED
 ─────────
@@ -476,7 +535,8 @@ Installed only by developers: `uv sync --extra bench`. Shipped `transcript` CLI 
 
 - **Reproducibility:** Whisper.cpp with `--no-fallback` and Sortformer streaming inference are both deterministic given the same audio and config. Two runs on the same machine should produce bit-identical CSV rows for the same `(clip_id, config_fingerprint)`. Different machines may differ slightly (CoreML/Metal nondeterminism); `host` column records which machine produced each row.
 - **Crash recovery:** Each row is appended as soon as it's computed, so a crashed run loses only the in-flight clip. Resuming is automatic — already-cached configs short-circuit; already-recorded `(tier, clip, config_fingerprint)` triples are skipped on re-run.
-- **Git hygiene:** `bench/cache/` is git-ignored. `bench/results/runs.csv` and `bench/results/leaderboard.md` are committed periodically as snapshots (with a `git_sha` column linking each row to the code state that produced it).
+- **Git hygiene:** `bench/cache/`, `bench/results/transcripts/`, and `bench/results/diffs/` are git-ignored. `bench/results/runs.csv` and `bench/results/leaderboard.md` are committed periodically as snapshots (with a `git_sha` column linking each row to the code state that produced it). After a tier-3 run, the tier-3 subset of transcripts + diffs can be opt-in committed for failure-mode analysis (`git add -f bench/results/{transcripts,diffs}/tier-3/`).
+- **Downstream use — informs future llm_fix design:** the persisted diffs are the foundation for a follow-up workstream that tailors `llm_fix` prompts to the residual failure patterns of the best deterministic config. That workstream is *not* part of this design's scope — but the artefacts it will need are produced as a side effect of the bench runs here.
 
 ## Open questions to validate during implementation
 
