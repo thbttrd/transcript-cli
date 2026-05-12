@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 
@@ -56,7 +56,7 @@ def assign_speakers(
     turns: list[Turn],
     *,
     strategy: Literal["hard_boundary", "prob_based"] = "hard_boundary",
-    probs: Optional[np.ndarray] = None,
+    probs: np.ndarray | None = None,
 ) -> list[tuple[Word, str]]:
     """Per-word speaker assignment.
 

@@ -218,9 +218,14 @@ def generate_leaderboard(*, results_dir: Path) -> Path:
         )
         for rank, (k, c, w, d, s, rt) in enumerate(ranked, 1):
             nf, sn, sp, al, mg = k
-            label = f"merge={mg}, align={al}, sortformer={sp}, no_fallback={nf}, suppress_nst={sn}"
-            lines.append(
-                f"| {rank} | {label} | {c*100:.1f} | {w*100:.1f} | {d*100:.1f} | {s*100:.1f} | {rt:.1f}s |"
+            label = (
+                f"merge={mg}, align={al}, sortformer={sp}, "
+                f"no_fallback={nf}, suppress_nst={sn}"
             )
+            row = (
+                f"| {rank} | {label} | {c*100:.1f} | {w*100:.1f} | "
+                f"{d*100:.1f} | {s*100:.1f} | {rt:.1f}s |"
+            )
+            lines.append(row)
     out_path.write_text("\n".join(lines) + "\n")
     return out_path

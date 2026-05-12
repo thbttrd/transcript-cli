@@ -45,7 +45,8 @@ def _detected_language(data: dict, fallback: str | None) -> str:
 def run(wav_path: Path, *, config: "TranscribeConfig") -> tuple[list[Word], str]:
     """Transcribe a 16 kHz mono WAV using whisper.cpp."""
     from transcript.pipeline_config import TranscribeConfig
-    assert isinstance(config, TranscribeConfig)
+    if not isinstance(config, TranscribeConfig):
+        raise TypeError(f"config must be TranscribeConfig, got {type(config).__name__}")
 
     binary = transcript_config.whisper_binary()
     if not binary.exists():
