@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 from transcript.models import Turn
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from transcript.pipeline_config import DiarizeConfig
 
 DIARIZER_LABEL = "NeMo Streaming Sortformer 4spk-v2.1"
@@ -103,10 +105,13 @@ def _parse_sortformer_segments(segments: list[str]) -> list[tuple[float, float, 
     return out
 
 
-def run(wav_path: Path, *, config: "DiarizeConfig") -> tuple[list[Turn], "np.ndarray | None"]:
+def run(
+    wav_path: Path, *, config: "DiarizeConfig"
+) -> tuple[list[Turn], "np.ndarray | None"]:
     """Diarize and return (turns, optional [T x 4] probability tensor)."""
     from transcript.pipeline_config import DiarizeConfig
-    assert isinstance(config, DiarizeConfig)
+    if not isinstance(config, DiarizeConfig):
+        raise TypeError(f"config must be DiarizeConfig, got {type(config).__name__}")
 
     model = _load_model(config.streaming_preset)
     if config.emit_probs:
@@ -118,8 +123,11 @@ def run(wav_path: Path, *, config: "DiarizeConfig") -> tuple[list[Turn], "np.nda
             raw_lines = result[0][0] if result[0] else []
             probs = result[1] if not isinstance(result[1], list) else result[1][0]
         else:
-            raw_lines = result[0] if result else []
-            probs = None
+            raise DiarizeError(
+                "emit_probs=True but NeMo did not return a (segments, tensor) tuple. "
+                "Check nemo_toolkit version — this branch silently falling back to "
+                "probs=None would mask a prob_based merge as hard_boundary."
+            )
     else:
         results = model.diarize(audio=[str(wav_path)], batch_size=1)
         raw_lines = results[0] if results else []

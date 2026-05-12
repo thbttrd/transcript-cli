@@ -5,6 +5,7 @@ Secondary diagnostics: speaker-agnostic WER, DER, and the cpWER-WER
 decomposition (the "speaker-assignment error rate" — right word, wrong
 speaker — which is the failure mode the prob-based merge targets).
 """
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -27,6 +28,12 @@ class ClipMetrics:
     wer:   float
     der:   float
     speaker_assignment_error_rate: float
+
+    def __post_init__(self) -> None:
+        for name in ("cpwer", "wer", "der", "speaker_assignment_error_rate"):
+            v = getattr(self, name)
+            if math.isnan(v) or v < 0.0:
+                raise ValueError(f"{name} must be a non-negative finite rate, got {v}")
 
 
 def normalise(s: str) -> str:
@@ -80,7 +87,12 @@ def _cpwer(hyp: list[Utterance], ref: list[Utterance]) -> float:
 
 def _der(hyp: list[Utterance], ref: list[Utterance]) -> float:
     """Speaker-only DER approximation: fraction of reference frames labelled with
-    the wrong (post-permutation) hypothesis speaker, at 10 ms resolution."""
+    the wrong (post-permutation) hypothesis speaker, at 10 ms resolution.
+
+    The permutation maps hyp labels onto ref labels (not onto hyp labels), so
+    a perfectly-diarized clip with `hyp={"Speaker 1","Speaker 2"}` and
+    `ref={"MEE068","FEE066"}` scores DER=0 after the optimal pairing.
+    """
     if not ref:
         return 0.0
     end = max(u.end for u in ref)
@@ -98,15 +110,27 @@ def _der(hyp: list[Utterance], ref: list[Utterance]) -> float:
     if not ref_spks or not hyp_spks:
         return 1.0
 
-    # Brute-force speaker permutation (cap: 4 speakers → 24 permutations).
-    best_err = None
-    for perm in permutations(hyp_spks, len(hyp_spks)):
-        mapping = dict(zip(hyp_spks, perm, strict=True))
-        remapped = np.array([mapping.get(s, s) for s in hyp_arr], dtype=object)
-        err = float(np.sum(remapped != ref_arr)) / float(np.sum(ref_arr != "") or 1)
-        if best_err is None or err < best_err:
-            best_err = err
-    return float(best_err or 1.0)
+    total = float(np.sum(ref_arr != ""))
+    if total == 0.0:
+        return 1.0
+
+    # Brute-force optimal hyp→ref label permutation (cap: 4 speakers → 24 perms).
+    # When hyp/ref speaker counts differ, the smaller set permutes against subsets
+    # of the larger; unmatched labels carry through unchanged and always mismatch.
+    best_err = math.inf
+    if len(hyp_spks) <= len(ref_spks):
+        for ref_perm in permutations(ref_spks, len(hyp_spks)):
+            mapping = dict(zip(hyp_spks, ref_perm, strict=True))
+            remapped = np.array([mapping.get(s, s) for s in hyp_arr], dtype=object)
+            err = float(np.sum(remapped != ref_arr)) / total
+            best_err = min(best_err, err)
+    else:
+        for hyp_perm in permutations(hyp_spks, len(ref_spks)):
+            mapping = dict(zip(hyp_perm, ref_spks, strict=True))
+            remapped = np.array([mapping.get(s, s) for s in hyp_arr], dtype=object)
+            err = float(np.sum(remapped != ref_arr)) / total
+            best_err = min(best_err, err)
+    return best_err if best_err != math.inf else 1.0
 
 
 def score(hypothesis: list[Utterance], reference: list[Utterance]) -> ClipMetrics:
