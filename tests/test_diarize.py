@@ -1,10 +1,12 @@
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
 from transcript import diarize
 from transcript.models import Turn
+from transcript.pipeline_config import DiarizeConfig
 
 
 def test_relabel_assigns_speaker_n_in_first_appearance_order():
@@ -40,8 +42,8 @@ def test_parse_sortformer_segments_handles_rttm_lines():
 
 @pytest.fixture
 def reset_model_cache(monkeypatch):
-    """Reset the diarize._model module-level cache around each test."""
-    monkeypatch.setattr(diarize, "_model", None)
+    """Reset the diarize._model_cache module-level cache around each test."""
+    monkeypatch.setattr(diarize, "_model_cache", {})
 
 
 def _inject_fake_nemo(monkeypatch, sortformer_class):
@@ -74,3 +76,60 @@ def test_load_model_raises_diarize_error_when_nemo_missing(reset_model_cache, mo
 
     with pytest.raises(diarize.DiarizeError, match="scripts/install.sh"):
         diarize._load_model()
+
+
+def test_streaming_params_for_very_high_lat_preset_match_nvidia_values():
+    params = diarize._streaming_params("very_high_lat")
+    assert params == {
+        "chunk_len": 340,
+        "chunk_right_context": 40,
+        "fifo_len": 40,
+        "spkcache_update_period": 340,
+        "spkcache_len": 188,
+    }
+
+
+def test_streaming_params_for_low_lat_preset_match_nvidia_values():
+    params = diarize._streaming_params("low_lat")
+    assert params == {
+        "chunk_len": 6,
+        "chunk_right_context": 7,
+        "fifo_len": 188,
+        "spkcache_update_period": 144,
+        "spkcache_len": 188,
+    }
+
+
+def test_run_filters_by_num_speakers(reset_model_cache, monkeypatch, mocker):
+    fake_model = mocker.MagicMock()
+    fake_model.diarize.return_value = [[
+        "0.0 1.0 spk_a",
+        "1.0 2.0 spk_b",
+        "2.0 3.0 spk_c",
+    ]]
+    fake_class = mocker.MagicMock()
+    fake_class.from_pretrained.return_value = fake_model
+    _inject_fake_nemo(monkeypatch, fake_class)
+
+    cfg = DiarizeConfig(num_speakers=2)
+    turns, probs = diarize.run(Path("/fake.wav"), config=cfg)
+    assert {t.speaker for t in turns} == {"Speaker 1", "Speaker 2"}
+    assert probs is None
+
+
+def test_run_returns_probs_when_emit_probs_true(reset_model_cache, monkeypatch, mocker):
+    import numpy as np
+
+    fake_tensor = np.zeros((10, 4), dtype=np.float32)
+    fake_model = mocker.MagicMock()
+    fake_model.diarize.return_value = ([["0.0 1.0 spk_a"]], fake_tensor)
+    fake_class = mocker.MagicMock()
+    fake_class.from_pretrained.return_value = fake_model
+    _inject_fake_nemo(monkeypatch, fake_class)
+
+    cfg = DiarizeConfig(emit_probs=True)
+    turns, probs = diarize.run(Path("/fake.wav"), config=cfg)
+    assert probs is not None
+    assert probs.shape == (10, 4)
+    _, kwargs = fake_model.diarize.call_args
+    assert kwargs.get("include_tensor_outputs") is True
