@@ -40,6 +40,9 @@ def whisper_key(audio_path: Path, cfg: TranscribeConfig) -> str:
 
 
 def sortformer_key(audio_path: Path, cfg: DiarizeConfig) -> str:
+    # num_speakers is a post-hoc filter in diarize.run, not a model input,
+    # so it's safe to exclude from the cache key — same audio + preset always
+    # yields the same pre-filter turns regardless of num_speakers.
     relevant = {
         "streaming_preset": cfg.streaming_preset,
         "emit_probs": cfg.emit_probs,
