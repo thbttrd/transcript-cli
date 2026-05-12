@@ -2,6 +2,7 @@
 score the result, append a CSV row, and persist transcripts + diffs.
 """
 import csv
+import logging
 import socket
 import subprocess
 import time
@@ -15,6 +16,8 @@ from transcript import align as align_mod
 from transcript import diarize, merge, transcribe
 from transcript.models import Meta, Utterance
 from transcript.pipeline_config import PipelineConfig
+
+_log = logging.getLogger(__name__)
 
 CACHED_STAGE_S = -1.0  # CSV sentinel: stage hit the cache, no measurement taken.
 
@@ -40,9 +43,15 @@ def _git_sha() -> str:
 def _load_reference_utterances(stm_path: Path) -> list[Utterance]:
     """Parse a synthesised STM into Utterance objects."""
     out: list[Utterance] = []
-    for line in stm_path.read_text().splitlines():
+    for lineno, line in enumerate(stm_path.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
         parts = line.split(maxsplit=6)
         if len(parts) < 7:
+            _log.warning(
+                "STM %s line %d: skipping malformed row with %d cols (need 7): %r",
+                stm_path, lineno, len(parts), line,
+            )
             continue
         _file, _ch, speaker, start, end, _na, text = parts
         out.append(Utterance(

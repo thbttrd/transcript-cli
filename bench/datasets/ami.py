@@ -8,12 +8,15 @@ WAVs cached under bench/cache/audio/ami/.
 If the vendored RTTM directory is empty on first run, attempt to clone the
 BUT repo into bench/cache/ami_rttm/ as a fallback (warns the user).
 """
+import logging
 import random
 import shutil
 import subprocess
 from pathlib import Path
 
 from bench.datasets.base import BenchClip, stm_line
+
+_log = logging.getLogger(__name__)
 
 _HF_DATASET = "edinburghcstr/ami"
 _HF_CONFIG  = "sdm"  # single distant mic
@@ -38,12 +41,24 @@ class AMIDataset:
             return vendored
         runtime = cache_dir / "ami_rttm"
         if not runtime.exists():
-            subprocess.run(
-                ["git", "clone", "--depth", "1", _BUT_REPO, str(runtime)],
-                check=True,
-            )
-        # The BUT repo nests RTTMs under a subdirectory — adjust this path
-        # after first clone if needed (open question in the spec).
+            try:
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", _BUT_REPO, str(runtime)],
+                    check=True,
+                    capture_output=True,
+                )
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr.decode(errors="replace") if e.stderr else ""
+                raise RuntimeError(
+                    f"Could not fetch BUT RTTM repo from {_BUT_REPO}. "
+                    f"Vendor RTTMs into {vendored} instead. Underlying: {stderr.strip()}"
+                ) from e
+        # BUG: the BUT repo nests RTTMs under `<runtime>/only_words/rttms/<id>.rttm`
+        # (and `<runtime>/AMI/only_words/rttms/<id>.rttm` for word-level alignments).
+        # Returning the clone root means `_prepare_clip` will see every meeting as
+        # "no RTTM" and silently skip it. To unblock the first benchmark run, either
+        # vendor RTTMs into bench/datasets/ami_rttm/ (preferred) or descend into the
+        # nested layout after clone — but the exact subdirectory varies by AMI split.
         return runtime
 
     def _load_index(self) -> list[dict]:
@@ -88,6 +103,7 @@ class AMIDataset:
         meeting_id = meeting["meeting_id"]
         rttm_file = self.rttm_dir / f"{meeting_id}.rttm"
         if not rttm_file.exists():
+            _log.warning("AMI: skipping %s — no RTTM at %s", meeting_id, rttm_file)
             return None
 
         wav_path = self.audio_dir / f"{meeting_id}.wav"
@@ -97,7 +113,11 @@ class AMIDataset:
 
         num_speakers = _count_rttm_speakers(rttm_file)
         if num_speakers > 4:
-            return None  # Sortformer 4-speaker cap
+            _log.warning(
+                "AMI: skipping %s — %d speakers exceeds Sortformer 4-speaker cap",
+                meeting_id, num_speakers,
+            )
+            return None
 
         stm_file = wav_path.with_suffix(".stm")
         if not stm_file.exists():

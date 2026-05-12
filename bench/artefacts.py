@@ -4,10 +4,12 @@ Output paths:
   bench/results/transcripts/tier-N/<safe-clip-id>/<config_fingerprint>.json
   bench/results/diffs/tier-N/<safe-clip-id>/<config_fingerprint>.json
 
-Both are JSON. Transcripts hold hypothesis + reference utterances; diffs hold
-the meeteval-aligned word ops plus the cpWER speaker permutation. These are
-the evidence behind every CSV row — the foundation for future failure-mode
-analysis when we tailor llm_fix prompts.
+Both are JSON. Transcripts hold hypothesis + reference utterances; diffs are
+INTENDED to hold meeteval-aligned word ops plus the cpWER speaker permutation,
+but the meeteval per-row diff extraction is not yet implemented — `runner.py`
+currently calls `save_diff` with empty `speaker_permutation={}` / `word_ops=[]`
+placeholders so the on-disk layout exists. The persisted diff files therefore
+contain `totals` of all zeros; do NOT use them as evidence until populated.
 """
 import json
 from dataclasses import asdict
