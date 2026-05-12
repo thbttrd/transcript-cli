@@ -32,3 +32,8 @@ class Dataset(Protocol):
         max_duration_s: float | None = None,
         seed: int = 42,
     ) -> list[BenchClip]: ...
+
+
+def stm_line(meeting_id: str, speaker: str, start: float, end: float, text: str) -> str:
+    """Render one STM line. Shared by every dataset loader's reference-synthesis path."""
+    return f"{meeting_id} 1 {speaker} {start:.2f} {end:.2f} <NA> {text}"

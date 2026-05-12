@@ -16,6 +16,8 @@ from transcript import diarize, merge, transcribe
 from transcript.models import Meta, Utterance
 from transcript.pipeline_config import PipelineConfig
 
+CACHED_STAGE_S = -1.0  # CSV sentinel: stage hit the cache, no measurement taken.
+
 CSV_COLUMNS = [
     "tier", "dataset", "clip_id", "config_id", "config_fingerprint",
     "no_fallback", "suppress_nst", "streaming_preset", "align", "merge_strategy",
@@ -52,9 +54,12 @@ def _load_reference_utterances(stm_path: Path) -> list[Utterance]:
 def _run_cached(clip: BenchClip, cfg: PipelineConfig,
                 cache_dir: Path) -> tuple[list[Utterance], Meta, dict]:
     """Run the pipeline for one (clip x config), reading from / writing to the cache."""
-    # -1.0 = stage was a cache hit (no measurement). 0.0 means it actually ran
-    # in sub-millisecond time (rare, but possible for the merge stage).
-    timings = {"whisper_s": -1.0, "sortformer_s": -1.0, "align_s": -1.0, "merge_s": -1.0}
+    timings = {
+        "whisper_s":    CACHED_STAGE_S,
+        "sortformer_s": CACHED_STAGE_S,
+        "align_s":      CACHED_STAGE_S,
+        "merge_s":      CACHED_STAGE_S,
+    }
 
     transcribe_cfg = replace(cfg.transcribe, language=clip.language)
     diarize_cfg = replace(cfg.diarize, num_speakers=clip.num_speakers)
