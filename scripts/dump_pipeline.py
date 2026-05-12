@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from transcript import audio, diarize, transcribe
-from transcript.pipeline_config import TranscribeConfig
+from transcript.pipeline_config import DiarizeConfig, TranscribeConfig
 
 
 def main() -> int:
@@ -25,7 +25,7 @@ def main() -> int:
     print(f"# audio: {args.audio_file}  ({dur:.2f}s, wav={wav})\n")
 
     print("## raw NeMo Sortformer turns")
-    turns = diarize.run(wav, num_speakers=args.speakers)
+    turns, _probs = diarize.run(wav, config=DiarizeConfig(num_speakers=args.speakers))
     for t in turns:
         print(f"  {t.speaker:9s}  {t.start:6.2f} → {t.end:6.2f}  ({t.end - t.start:.2f}s)")
 
