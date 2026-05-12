@@ -133,3 +133,14 @@ def test_pipeline_threads_emit_probs_when_merge_is_prob_based(tmp_path, mocker):
     pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
     diarize_cfg = diarize_spy.call_args.kwargs["config"]
     assert diarize_cfg.emit_probs is True
+
+
+def test_pipeline_does_not_force_emit_probs_when_merge_is_hard_boundary(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    diarize_spy = mocker.patch(
+        "transcript.pipeline.diarize.run",
+        return_value=([Turn("Speaker 1", 0.0, 1.0)], None),
+    )
+    pipeline.run(audio_path=wav, config=PipelineConfig(), with_diarization=True)
+    diarize_cfg = diarize_spy.call_args.kwargs["config"]
+    assert diarize_cfg.emit_probs is False
