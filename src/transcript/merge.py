@@ -1,9 +1,14 @@
+from typing import Literal, Optional
+
+import numpy as np
+
 from transcript.models import Turn, Utterance, Word
 
 UNKNOWN = "Unknown"
+FRAME_S = 0.08  # Sortformer frame size — 80 ms
 
 
-def _best_speaker(word: Word, turns: list[Turn]) -> str:
+def _best_speaker_hard_boundary(word: Word, turns: list[Turn]) -> str:
     if not turns:
         return UNKNOWN
 
@@ -16,23 +21,53 @@ def _best_speaker(word: Word, turns: list[Turn]) -> str:
         if overlap > best_overlap:
             best_overlap = overlap
             best_turn = turn
-        if turn.start >= word.start and (earliest_upcoming is None or turn.start < earliest_upcoming.start):
+        if turn.start >= word.start and (
+            earliest_upcoming is None or turn.start < earliest_upcoming.start
+        ):
             earliest_upcoming = turn
         if latest_turn is None or turn.end > latest_turn.end:
             latest_turn = turn
 
     if best_turn is not None:
         return best_turn.speaker
-    # No overlap: word sits in a gap. Prefer the upcoming turn — boundary words
-    # are usually the first word of the new speaker, not the last of the previous.
     if earliest_upcoming is not None:
         return earliest_upcoming.speaker
     return latest_turn.speaker  # type: ignore[union-attr]
 
 
-def assign_speakers(words: list[Word], turns: list[Turn]) -> list[tuple[Word, str]]:
-    """Per-word speaker assignment (max overlap → upcoming-turn fallback)."""
-    return [(w, _best_speaker(w, turns)) for w in words]
+def _best_speaker_prob_based(word: Word, probs: np.ndarray) -> str:
+    """Average per-frame probabilities over the word's frame window; argmax to speaker."""
+    n_frames = probs.shape[0]
+    start_frame = int(word.start / FRAME_S)
+    end_frame = max(start_frame + 1, int(np.ceil(word.end / FRAME_S)))
+    if start_frame >= n_frames:
+        return UNKNOWN
+    end_frame = min(end_frame, n_frames)
+    window = probs[start_frame:end_frame]
+    if window.size == 0:
+        return UNKNOWN
+    mean = window.mean(axis=0)
+    idx = int(mean.argmax())
+    return f"Speaker {idx + 1}"
+
+
+def assign_speakers(
+    words: list[Word],
+    turns: list[Turn],
+    *,
+    strategy: Literal["hard_boundary", "prob_based"] = "hard_boundary",
+    probs: Optional[np.ndarray] = None,
+) -> list[tuple[Word, str]]:
+    """Per-word speaker assignment.
+
+    - strategy="hard_boundary": max-overlap to turn ranges (existing logic).
+    - strategy="prob_based": average per-frame probabilities over word.start..end,
+      argmax over the 4 speaker columns. Requires `probs` (a [T x 4] array).
+      Falls back to hard_boundary silently if probs is None.
+    """
+    if strategy == "prob_based" and probs is not None:
+        return [(w, _best_speaker_prob_based(w, probs)) for w in words]
+    return [(w, _best_speaker_hard_boundary(w, turns)) for w in words]
 
 
 def collapse(word_speakers: list[tuple[Word, str]]) -> list[Utterance]:
@@ -68,5 +103,5 @@ def collapse(word_speakers: list[tuple[Word, str]]) -> list[Utterance]:
 
 
 def assign(words: list[Word], turns: list[Turn]) -> list[Utterance]:
-    """One-shot: assign per-word speakers, then collapse to utterances."""
+    """One-shot convenience: hard_boundary assign + collapse."""
     return collapse(assign_speakers(words, turns))
