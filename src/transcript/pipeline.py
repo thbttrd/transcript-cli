@@ -1,24 +1,20 @@
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 
-from transcript import align, audio, diarize, formatters, llm_fix, merge, transcribe
-from transcript.models import Meta, Turn
+from transcript import align, audio, diarize, llm_fix, merge, transcribe
+from transcript.models import Meta, Turn, Utterance
+from transcript.pipeline_config import PipelineConfig
 from transcript.progress import Progress
 
 
 def run(
     *,
     audio_path: Path,
-    model: str,
-    language: str | None,
-    with_diarization: bool,
-    num_speakers: int | None,
-    format_name: str,
-    with_timestamps: bool,
-    with_align: bool = True,
-    with_llm_fix: bool = False,
+    config: PipelineConfig,
+    with_diarization: bool = True,
     progress: Progress | None = None,
-) -> str:
+) -> tuple[list[Utterance], Meta]:
     progress = progress or Progress(quiet=True)
 
     progress.step("preparing audio")
@@ -27,32 +23,39 @@ def run(
 
     is_temp_wav = wav != audio_path
     try:
+        diarize_cfg = config.diarize
+        if config.merge.strategy == "prob_based":
+            diarize_cfg = replace(diarize_cfg, emit_probs=True)
+
         if with_diarization:
             progress.step("transcribing + diarizing (parallel)")
             with ThreadPoolExecutor(max_workers=2) as ex:
-                tx_fut = ex.submit(transcribe.run, wav, model=model, language=language)
-                turns_fut = ex.submit(diarize_module_run, wav, num_speakers)
+                tx_fut = ex.submit(transcribe.run, wav, config=config.transcribe)
+                diar_fut = ex.submit(diarize.run, wav, config=diarize_cfg)
                 words, detected_lang = tx_fut.result()
-                turns = turns_fut.result()
+                turns, probs = diar_fut.result()
             progress.done("transcribing + diarizing (parallel)")
         else:
             progress.step("transcribing")
-            words, detected_lang = transcribe.run(wav, model=model, language=language)
+            words, detected_lang = transcribe.run(wav, config=config.transcribe)
             turns = [Turn(speaker="Speaker 1", start=0.0, end=duration)]
+            probs = None
             progress.done("transcribing")
 
-        if with_align and align.is_available() and words:
+        if config.align.enabled and align.is_available() and words:
             progress.step("aligning words")
             words = align.run(wav, words, language=detected_lang)
             progress.done("aligning words")
 
-        word_speakers = merge.assign_speakers(words, turns)
-        if with_diarization and with_llm_fix and llm_fix.is_available():
+        word_speakers = merge.assign_speakers(
+            words, turns, strategy=config.merge.strategy, probs=probs
+        )
+        if with_diarization and config.llm_fix.enabled and llm_fix.is_available():
             progress.step("LLM cleanup")
             word_speakers = llm_fix.apply(
                 word_speakers,
                 language=detected_lang,
-                num_speakers=num_speakers,
+                num_speakers=config.diarize.num_speakers,
             )
             progress.done("LLM cleanup")
 
@@ -64,20 +67,13 @@ def run(
         meta = Meta(
             filename=audio_path.name,
             duration=duration,
-            model=model,
+            model=config.transcribe.model,
             language=detected_lang,
             speaker_count=speaker_count,
             diarizer=diarize.DIARIZER_LABEL if with_diarization else None,
         )
 
-        render = formatters.get(format_name)
-        if format_name == "md":
-            return render(utterances, meta, with_timestamps=with_timestamps)
-        return render(utterances, meta)
+        return utterances, meta
     finally:
         if is_temp_wav:
             wav.unlink(missing_ok=True)
-
-
-def diarize_module_run(wav: Path, num_speakers: int | None):
-    return diarize.run(wav, num_speakers=num_speakers)
