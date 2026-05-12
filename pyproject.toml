@@ -36,6 +36,14 @@ dev = [
     "pytest-mock==3.14.0",
     "ruff==0.8.4",
 ]
+bench = [
+    # 3.2.0 caps fsspec at 2024.9.0, but NeMo 2.7.3 pins fsspec==2024.12.0.
+    # 3.3.0+ widens to fsspec<=2024.12.0; 3.3.2 is the smallest compatible bump.
+    "datasets==3.3.2",
+    "meeteval==0.4.1",
+    "pandas==2.2.3",
+    "soundfile==0.12.1",
+]
 
 [project.scripts]
 transcript = "transcript.cli:main"
