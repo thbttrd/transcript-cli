@@ -25,3 +25,8 @@ htmlcov/
 
 # Project-specific
 *.log
+
+# bench
+bench/cache/
+bench/results/transcripts/
+bench/results/diffs/

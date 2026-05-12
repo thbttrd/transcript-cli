@@ -1,11 +1,14 @@
 import json
-import shutil
-import sys
 from pathlib import Path
 
 import pytest
 
-from transcript import config, pipeline
+from transcript import config, formatters, pipeline
+from transcript.pipeline_config import (
+    DiarizeConfig,
+    PipelineConfig,
+    TranscribeConfig,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tiny.wav"
 
@@ -17,7 +20,10 @@ def _setup_ready() -> tuple[bool, str]:
         return False, "whisper.cpp binary not built (run scripts/install.sh)"
     base_model = config.whisper_model("base")
     if not base_model.exists():
-        return False, f"whisper 'base' model missing at {base_model} (download via whisper.cpp's download-ggml-model.sh)"
+        return False, (
+            f"whisper 'base' model missing at {base_model} "
+            "(download via whisper.cpp's download-ggml-model.sh)"
+        )
     return True, ""
 
 
@@ -27,16 +33,16 @@ def test_full_pipeline_against_tiny_wav():
     if not ok:
         pytest.skip(reason)
 
-    out = pipeline.run(
-        audio_path=FIXTURE,
-        model="base",            # use the small model to keep this test fast
-        language="fr",
-        with_diarization=True,
-        num_speakers=2,
-        format_name="json",
-        with_timestamps=True,
+    cfg = PipelineConfig(
+        transcribe=TranscribeConfig(model="base", language="fr"),
+        diarize=DiarizeConfig(num_speakers=2),
     )
-    data = json.loads(out)
+    utterances, meta = pipeline.run(
+        audio_path=FIXTURE,
+        config=cfg,
+        with_diarization=True,
+    )
+    data = json.loads(formatters.get("json")(utterances, meta))
     # Two French voices — Sortformer should detect 2 speakers
     assert data["meta"]["speaker_count"] == 2
     # Some recognisable French content should be present
@@ -50,15 +56,12 @@ def test_no_diarize_returns_single_speaker():
     if not ok:
         pytest.skip(reason)
 
-    out = pipeline.run(
+    cfg = PipelineConfig(transcribe=TranscribeConfig(model="base", language="fr"))
+    utterances, meta = pipeline.run(
         audio_path=FIXTURE,
-        model="base",
-        language="fr",
+        config=cfg,
         with_diarization=False,
-        num_speakers=None,
-        format_name="json",
-        with_timestamps=True,
     )
-    data = json.loads(out)
+    data = json.loads(formatters.get("json")(utterances, meta))
     speakers = {u["speaker"] for u in data["utterances"]}
     assert speakers == {"Speaker 1"}
