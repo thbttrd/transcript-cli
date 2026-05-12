@@ -5,12 +5,15 @@ transcript pipeline on a meeting we mix the tracks into a single 16 kHz mono
 WAV with ffmpeg amix, and synthesise the reference RTTM/STM from the per-track
 segment + word metadata.
 """
+import logging
 import random
 import subprocess
 import tempfile
 from pathlib import Path
 
 from bench.datasets.base import BenchClip, stm_line
+
+_log = logging.getLogger(__name__)
 
 
 class SUMMREDataset:
@@ -52,9 +55,14 @@ class SUMMREDataset:
             _synthesise_stm(tracks, meeting_id=meeting_id, out_path=stm_path)
 
         if not rttm_path.read_text().strip():
+            _log.warning("SUMM-RE: skipping %s — synthesised RTTM is empty", meeting_id)
             return None
         n_speakers = len({tr["speaker_id"] for tr in tracks})
         if n_speakers > 4:
+            _log.warning(
+                "SUMM-RE: skipping %s — %d speakers exceeds Sortformer 4-speaker cap",
+                meeting_id, n_speakers,
+            )
             return None
 
         duration = audio_mod._probe(wav_path)["duration"]
@@ -99,7 +107,11 @@ def _mix_tracks(track_paths: list[Path], *, out_path: Path) -> None:
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
         str(out_path),
     ]
-    subprocess.run(cmd, capture_output=True, check=True)
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode(errors="replace") if e.stderr else ""
+        raise RuntimeError(f"ffmpeg amix failed: {stderr.strip()}") from e
 
 
 def _synthesise_rttm(tracks: list[dict], *, meeting_id: str, out_path: Path) -> None:

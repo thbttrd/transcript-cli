@@ -7,6 +7,8 @@ structured data, NumPy `.npy` for tensors — no opaque binary formats.
 import functools
 import hashlib
 import json
+import logging
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -14,6 +16,24 @@ import numpy as np
 
 from transcript.models import Turn, Word
 from transcript.pipeline_config import DiarizeConfig, TranscribeConfig
+
+_log = logging.getLogger(__name__)
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write text atomically: write to <path>.tmp, then os.replace."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content)
+    os.replace(tmp, path)
+
+
+def _atomic_write_npy(path: Path, arr: np.ndarray) -> None:
+    """Save .npy atomically: write via an open file handle (so np.save doesn't
+    auto-append .npy to the .tmp path), then os.replace."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("wb") as f:
+        np.save(f, arr)
+    os.replace(tmp, path)
 
 
 @functools.cache
@@ -77,8 +97,9 @@ def save_whisper(
 ) -> None:
     path = _whisper_path(audio_path, cfg, cache_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps([{"text": w.text, "start": w.start, "end": w.end} for w in words])
+    _atomic_write_text(
+        path,
+        json.dumps([{"text": w.text, "start": w.start, "end": w.end} for w in words]),
     )
 
 
@@ -91,8 +112,12 @@ def load_whisper(
     path = _whisper_path(audio_path, cfg, cache_dir)
     if not path.exists():
         return None
-    raw = json.loads(path.read_text())
-    return [Word(**r) for r in raw]
+    try:
+        raw = json.loads(path.read_text())
+        return [Word(**r) for r in raw]
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
+        _log.warning("whisper cache %s is corrupt (%s); re-running stage", path, e)
+        return None
 
 
 def _sortformer_dir(audio_path: Path, cfg: DiarizeConfig, cache_dir: Path) -> Path:
@@ -109,13 +134,14 @@ def save_sortformer(
 ) -> None:
     base = _sortformer_dir(audio_path, cfg, cache_dir)
     base.mkdir(parents=True, exist_ok=True)
-    (base / "turns.json").write_text(
+    _atomic_write_text(
+        base / "turns.json",
         json.dumps(
             [{"speaker": t.speaker, "start": t.start, "end": t.end} for t in turns]
-        )
+        ),
     )
     if probs is not None:
-        np.save(base / "probs.npy", probs)
+        _atomic_write_npy(base / "probs.npy", probs)
 
 
 def load_sortformer(
@@ -128,10 +154,14 @@ def load_sortformer(
     turns_file = base / "turns.json"
     if not turns_file.exists():
         return None
-    turns = [Turn(**r) for r in json.loads(turns_file.read_text())]
-    probs_file = base / "probs.npy"
-    probs = np.load(probs_file) if probs_file.exists() else None
-    return turns, probs
+    try:
+        turns = [Turn(**r) for r in json.loads(turns_file.read_text())]
+        probs_file = base / "probs.npy"
+        probs = np.load(probs_file) if probs_file.exists() else None
+        return turns, probs
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
+        _log.warning("sortformer cache %s is corrupt (%s); re-running stage", base, e)
+        return None
 
 
 def _align_path(
@@ -150,8 +180,9 @@ def save_align(
 ) -> None:
     path = _align_path(audio_path, whisper_hash, language, cache_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps([{"text": w.text, "start": w.start, "end": w.end} for w in words])
+    _atomic_write_text(
+        path,
+        json.dumps([{"text": w.text, "start": w.start, "end": w.end} for w in words]),
     )
 
 
@@ -165,5 +196,9 @@ def load_align(
     path = _align_path(audio_path, whisper_hash, language, cache_dir)
     if not path.exists():
         return None
-    raw = json.loads(path.read_text())
-    return [Word(**r) for r in raw]
+    try:
+        raw = json.loads(path.read_text())
+        return [Word(**r) for r in raw]
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
+        _log.warning("align cache %s is corrupt (%s); re-running stage", path, e)
+        return None
