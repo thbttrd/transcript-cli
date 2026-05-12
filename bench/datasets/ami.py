@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from bench.datasets.base import BenchClip
+from bench.datasets.base import BenchClip, stm_line
 
 _HF_DATASET = "edinburghcstr/ami"
 _HF_CONFIG  = "sdm"  # single distant mic
@@ -28,6 +28,8 @@ class AMIDataset:
         self.audio_dir = cache_dir / "audio" / "ami"
         self.audio_dir.mkdir(parents=True, exist_ok=True)
         self.rttm_dir = rttm_dir or self._resolve_rttm_dir(cache_dir)
+        self._index_cache: list[dict] | None = None
+        self._stm_rows_by_meeting: dict[str, list[dict]] = {}
 
     @staticmethod
     def _resolve_rttm_dir(cache_dir: Path) -> Path:
@@ -45,7 +47,7 @@ class AMIDataset:
         return runtime
 
     def _load_index(self) -> list[dict]:
-        if hasattr(self, "_index_cache"):
+        if self._index_cache is not None:
             return self._index_cache
         from datasets import load_dataset
         ds = load_dataset(_HF_DATASET, _HF_CONFIG, split="test")
@@ -72,19 +74,12 @@ class AMIDataset:
 
     def _write_ami_stm(self, meeting_id: str, out: Path) -> None:
         """Write STM rows for one meeting from the cached HF index."""
-        # _load_index must have been called first to populate _stm_rows_by_meeting
-        if not hasattr(self, "_stm_rows_by_meeting"):
+        if self._index_cache is None:
             self._load_index()
-        rows = self._stm_rows_by_meeting.get(meeting_id, [])
-        lines = []
-        for r in rows:
-            speaker = r["speaker_id"]
-            begin = r["begin_time"]
-            end = r["end_time"]
-            text = r["text"]
-            lines.append(
-                f"{meeting_id} 1 {speaker} {begin:.2f} {end:.2f} <NA> {text}"
-            )
+        lines = [
+            stm_line(meeting_id, r["speaker_id"], r["begin_time"], r["end_time"], r["text"])
+            for r in self._stm_rows_by_meeting.get(meeting_id, [])
+        ]
         out.write_text("\n".join(lines))
 
     def _prepare_clip(self, meeting: dict) -> BenchClip | None:

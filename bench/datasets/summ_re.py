@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from bench.datasets.base import BenchClip
+from bench.datasets.base import BenchClip, stm_line
 
 
 class SUMMREDataset:
@@ -130,7 +130,7 @@ def _synthesise_stm(tracks: list[dict], *, meeting_id: str, out_path: Path) -> N
             rows.append((float(seg["start"]), float(seg["end"]), spk, text))
     rows.sort()
     lines = [
-        f"{meeting_id} 1 {spk} {s:.2f} {e:.2f} <NA> {text}"
+        stm_line(meeting_id, spk, s, e, text)
         for s, e, spk, text in rows
     ]
     out_path.write_text("\n".join(lines))

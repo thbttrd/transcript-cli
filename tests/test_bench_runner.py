@@ -6,13 +6,7 @@ deterministic, no-pipeline parts: CSV → markdown.
 """
 from bench import runner
 
-CSV_HEADER = (
-    "tier,dataset,clip_id,config_id,config_fingerprint,"
-    "no_fallback,suppress_nst,streaming_preset,align,merge_strategy,"
-    "cpwer,wer,der,speaker_assignment_error_rate,"
-    "runtime_s,whisper_s,sortformer_s,align_s,merge_s,"
-    "git_sha,started_at,host,hypothesis_path,diff_path"
-)
+CSV_HEADER = ",".join(runner.CSV_COLUMNS)
 
 
 def _row(**kw) -> str:
@@ -32,8 +26,7 @@ def _row(**kw) -> str:
         "diff_path": "diffs/tier-3/AMI_m1/abc.json",
     }
     defaults.update(kw)
-    cols = CSV_HEADER.split(",")
-    return ",".join(defaults[c] for c in cols)
+    return ",".join(defaults[c] for c in runner.CSV_COLUMNS)
 
 
 def test_generate_leaderboard_writes_no_runs_yet_on_empty_dir(tmp_path):
