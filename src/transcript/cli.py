@@ -77,18 +77,32 @@ def main(argv: list[str] | None = None) -> int:
     progress = Progress(verbose=args.verbose, quiet=args.quiet)
 
     try:
-        out = pipeline.run(
+        from transcript import formatters
+        from transcript.pipeline_config import (
+            AlignConfig,
+            DiarizeConfig,
+            LLMFixConfig,
+            PipelineConfig,
+            TranscribeConfig,
+        )
+
+        cfg = PipelineConfig(
+            transcribe=TranscribeConfig(model=args.model, language=args.language),
+            diarize=DiarizeConfig(num_speakers=args.speakers),
+            align=AlignConfig(enabled=not args.no_align),
+            llm_fix=LLMFixConfig(enabled=args.llm_fix),
+        )
+        utterances, meta = pipeline.run(
             audio_path=args.audio_file,
-            model=args.model,
-            language=args.language,
+            config=cfg,
             with_diarization=not args.no_diarize,
-            num_speakers=args.speakers,
-            with_align=not args.no_align,
-            with_llm_fix=args.llm_fix,
-            format_name=args.format,
-            with_timestamps=not args.no_timestamps,
             progress=progress,
         )
+        render = formatters.get(args.format)
+        if args.format == "md":
+            out = render(utterances, meta, with_timestamps=not args.no_timestamps)
+        else:
+            out = render(utterances, meta)
     except AudioError as e:
         print(f"✗ {e}", file=sys.stderr)
         return EXIT_AUDIO
