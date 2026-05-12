@@ -7,8 +7,10 @@ Usage:
 """
 import argparse
 import sys
+from pathlib import Path
 
 from transcript import audio, diarize, transcribe
+from transcript.pipeline_config import TranscribeConfig
 
 
 def main() -> int:
@@ -19,7 +21,6 @@ def main() -> int:
     p.add_argument("-m", "--model", default="large-v3")
     args = p.parse_args()
 
-    from pathlib import Path
     wav, dur = audio.prepare(Path(args.audio_file))
     print(f"# audio: {args.audio_file}  ({dur:.2f}s, wav={wav})\n")
 
@@ -29,7 +30,9 @@ def main() -> int:
         print(f"  {t.speaker:9s}  {t.start:6.2f} → {t.end:6.2f}  ({t.end - t.start:.2f}s)")
 
     print("\n## raw whisper words")
-    words = transcribe.run(wav, model=args.model, language=args.language)
+    words, _lang = transcribe.run(
+        wav, config=TranscribeConfig(model=args.model, language=args.language)
+    )
     for w in words:
         print(f"  {w.start:6.2f} → {w.end:6.2f}  '{w.text}'")
     return 0

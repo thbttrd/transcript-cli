@@ -2,9 +2,13 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from transcript import config as transcript_config
 from transcript.models import Word
+
+if TYPE_CHECKING:
+    from transcript.pipeline_config import TranscribeConfig
 
 
 class TranscribeError(RuntimeError):
@@ -38,7 +42,7 @@ def _detected_language(data: dict, fallback: str | None) -> str:
     return data.get("result", {}).get("language") or fallback or "auto"
 
 
-def run(wav_path: Path, *, config) -> tuple[list[Word], str]:
+def run(wav_path: Path, *, config: "TranscribeConfig") -> tuple[list[Word], str]:
     """Transcribe a 16 kHz mono WAV using whisper.cpp."""
     from transcript.pipeline_config import TranscribeConfig
     assert isinstance(config, TranscribeConfig)
