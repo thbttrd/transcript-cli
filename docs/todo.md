@@ -30,3 +30,106 @@ secondary diagnostics. Results are appended to `bench/results/runs.csv` and
 auto-summarised in `bench/results/leaderboard.md`. Per-row hypothesis and
 diff artefacts are persisted under `bench/results/{transcripts,diffs}/` for
 post-hoc failure-mode analysis.
+
+## 4. Run the benchmark and pick a winning config — NEXT
+
+The harness is built but has never been run against real data. This is the
+next concrete workstream.
+
+### Pre-flight
+
+1. **Vendor AMI RTTMs.** `bench/datasets/ami_rttm/` ships empty. The runtime
+   git-clone fallback in `bench/datasets/ami.py:_resolve_rttm_dir` has a
+   known bug: the BUT repo nests RTTMs under `<root>/only_words/rttms/` but
+   the loader returns the root, so every AMI clip will silently skip (the
+   `_log.warning("AMI: skipping %s — no RTTM ...")` line fires on each).
+   Two ways to unblock:
+   - **Quick:** download the BUT repo manually
+     (`https://github.com/BUTSpeechFIT/AMI-diarization-setup`), copy
+     `*.rttm` files from `only_words/rttms/` flat into
+     `bench/datasets/ami_rttm/`, commit them.
+   - **Clean:** fix `_resolve_rttm_dir` to descend into the nested layout.
+
+2. **HuggingFace auth.** `linagora/SUMM-RE` may be gated. Run
+   `huggingface-cli login` or set `HF_TOKEN` in the env. AMI's
+   `edinburghcstr/ami` is public.
+
+3. **Disk + bandwidth.** Plan for ~25 GB combined (AMI sdm test split +
+   SUMM-RE dev split). First clip per meeting downloads; subsequent runs
+   hit the HF dataset cache.
+
+4. **ffmpeg.** Already a runtime dep but confirm `which ffmpeg` works —
+   SUMM-RE's `_mix_tracks` uses it to combine per-speaker tracks into a
+   single 16 kHz mono WAV.
+
+### Running the sweep
+
+Tiers must run in order — each reads the previous tier's rows from
+`bench/results/runs.csv`:
+
+```bash
+uv run python scripts/benchmark.py --tier 1   # 32-config grid × 3 clips ≤150s
+uv run python scripts/benchmark.py --tier 2   # narrowed axes × 10 clips ≤600s
+uv run python scripts/benchmark.py --tier 3   # top-5 finalists × 50 clips full
+```
+
+Or chain with `--all`. To re-render the leaderboard without rerunning:
+`uv run python scripts/benchmark.py --rebuild-leaderboard`.
+
+Rough time budget (consumer Mac, no GPU):
+- **Tier 1:** ~4–8 h. 192 rows total; the content-hashed cache amortises
+  whisper/sortformer/align across the 32 configs per clip (only merge.py
+  changes downstream of those stages).
+- **Tier 2:** ~6–10 h. Longer clips, fewer configs.
+- **Tier 3:** ~6–12 h. Full-duration clips × ≤5 finalists.
+
+If a run is interrupted, restarting picks up cached stages automatically.
+
+### Reading the results
+
+- `bench/results/leaderboard.md` — tier-3 ranking per dataset by median
+  cpWER. Auto-rendered after each tier; safe to re-render anytime.
+- `bench/results/runs.csv` — every row across every tier. Columns include
+  per-stage timings (whisper_s / sortformer_s / align_s / merge_s); the
+  sentinel `-1.0` marks cached stages (filter `>= 0` before averaging).
+- `bench/results/transcripts/tier-N/<clip>/<fingerprint>.json` — hypothesis
+  + reference utterances for that (clip × config). The evidence for every
+  CSV row.
+- `bench/results/diffs/tier-N/...` — currently empty placeholders. The
+  meeteval per-row diff extraction is deferred (see #5).
+
+First three things to check:
+
+1. **speaker_assignment_error_rate column** — the cpWER−WER decomposition
+   that the prob_based merge specifically targets. If `prob_based` doesn't
+   dominate `hard_boundary` on this column, the new strategy didn't earn
+   its keep and should be reverted.
+2. **streaming_preset** — does `low_lat` ever beat `very_high_lat`? NVIDIA
+   says it shouldn't on batch workloads; if it does, investigate.
+3. **no_fallback=False** — occasionally rescuing hard segments could lower
+   WER without inflating cpWER. Worth checking before defaulting it.
+
+## 5. Populate per-row meeteval diffs — FOLLOW-UP
+
+`bench/runner.py:run_one_tier` currently calls `artefacts.save_diff` with
+empty placeholders (`speaker_permutation={}`, `word_ops=[]`). The persisted
+diff JSON files therefore have all-zero `totals`. To make them useful for
+failure-mode analysis (see #6), wire `meeteval`'s alignment output into
+`runner.py:_run_cached` → `metrics.score` → `artefacts.save_diff`:
+
+- meeteval's `cpwer()` result exposes `assignment` (the speaker permutation)
+  and a per-word alignment when called with SegLST inputs.
+- The diff schema in `artefacts.py` already expects `op ∈ {equal, sub, ins,
+  del, speaker_swap}`. The `speaker_swap` op (right word, wrong speaker) is
+  exactly the failure mode the prob_based merge targets.
+
+## 6. LLM-fix prompt-design tailored to residual failures — FOLLOW-UP
+
+Deliberately excluded from the benchmark axes (per the project's
+"tune deterministic core first" decision). After #4 lands the best
+deterministic config, mine `bench/results/diffs/tier-3/` for the residual
+error patterns (boundary swaps, stranded short islands, hallucinated
+inserts) and rewrite the `llm_fix.apply` prompt to target only what the
+deterministic pipeline can't fix. Without this, llm_fix's gemma4:e4b will
+keep introducing more errors than it removes on cases the deterministic
+pipeline already gets right.
