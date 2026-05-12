@@ -29,14 +29,31 @@ def _vendored_rttm_dir() -> Path:
     return Path(__file__).parent / "ami_rttm"
 
 
-def _find_rttm_dir(root: Path) -> Path | None:
-    """Return the deepest dir under ``root`` that contains *.rttm files.
+def _find_rttm_dir(root: Path, split: str = "test") -> Path | None:
+    """Return the dir holding per-meeting RTTMs for ``split`` (default: test).
 
-    The BUT repo nests RTTMs under ``only_words/rttms/``; manually placed
-    RTTMs may live flat at ``root``. Returns ``None`` if no RTTMs anywhere.
+    The BUT repo layout is::
+
+        <root>/only_words/rttms/
+            train.rttm dev.rttm test.rttm     # split-level concatenated files
+            train/<meeting_id>.rttm           # per-meeting RTTMs we want
+            dev/<meeting_id>.rttm
+            test/<meeting_id>.rttm
+
+    The split-level *.rttm files at ``only_words/rttms/`` are NOT per-meeting
+    and would mislead a shallow glob — descend into ``<split>/`` first.
+
+    Falls back to a flat layout at ``only_words/rttms/`` or at ``root`` itself
+    so manually-vendored RTTMs work too. Returns ``None`` if no per-meeting
+    RTTMs are found anywhere.
     """
-    if any(root.glob("only_words/rttms/*.rttm")):
-        return root / "only_words" / "rttms"
+    nested = root / "only_words" / "rttms"
+    split_dir = nested / split
+    if split_dir.is_dir() and any(split_dir.glob("*.rttm")):
+        return split_dir
+    if nested.is_dir() and any(p for p in nested.glob("*.rttm")
+                                if p.stem not in {"train", "dev", "test"}):
+        return nested
     if any(root.glob("*.rttm")):
         return root
     return None
