@@ -51,6 +51,42 @@ def test_resolve_rttm_dir_descends_into_but_nested_layout(tmp_path, monkeypatch)
     assert (result / "IS1009b.rttm").exists()
 
 
+def test_resolve_rttm_dir_descends_into_but_split_subdir(tmp_path, monkeypatch):
+    """The BUT repo nests per-meeting RTTMs under
+    `only_words/rttms/<split>/<meeting_id>.rttm` where <split> ∈ {train,dev,test}.
+    The split root (`only_words/rttms/`) only contains concatenated *.rttm
+    files (`dev.rttm`, `test.rttm`, `train.rttm`), which are not per-meeting.
+    The resolver must descend into the `test/` split subdir since the AMI
+    loader hardcodes `split=\"test\"`."""
+    empty_vendored = tmp_path / "empty_vendored"
+    empty_vendored.mkdir()
+    monkeypatch.setattr(
+        "bench.datasets.ami._vendored_rttm_dir", lambda: empty_vendored
+    )
+
+    cache_dir = tmp_path / "cache"
+    runtime = cache_dir / "ami_rttm"
+    rttms_root = runtime / "only_words" / "rttms"
+    test_dir = rttms_root / "test"
+    # Per-meeting RTTMs live in test/
+    _touch_rttm(test_dir, "ES2002a")
+    _touch_rttm(test_dir, "IS1009b")
+    # Concatenated split-level files live at the rttms_root level — these
+    # match `only_words/rttms/*.rttm` glob but aren't per-meeting RTTMs.
+    (rttms_root / "test.rttm").write_text("SPEAKER ES2002a 1 0 1 <NA> <NA> A <NA> <NA>\n")
+    (rttms_root / "dev.rttm").write_text("")
+    (rttms_root / "train.rttm").write_text("")
+    # The dev/ and train/ split subdirs also exist with their own meetings,
+    # but we want the test split since AMI loader pins to test.
+    _touch_rttm(rttms_root / "dev", "ES2003a")
+    _touch_rttm(rttms_root / "train", "ES2004a")
+
+    result = AMIDataset._resolve_rttm_dir(cache_dir)
+    assert result == test_dir
+    assert (result / "ES2002a.rttm").exists()
+    assert (result / "IS1009b.rttm").exists()
+
+
 def test_resolve_rttm_dir_falls_back_to_flat_runtime_layout(tmp_path, monkeypatch):
     """If the runtime dir already has flat RTTMs (manually placed), accept it."""
     empty_vendored = tmp_path / "empty_vendored"
