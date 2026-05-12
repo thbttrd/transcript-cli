@@ -2,19 +2,13 @@
 
 Ideas to test, ordered by expected payoff.
 
-## 1. Probability-based per-word speaker assignment
+## 1. Probability-based per-word speaker assignment — DONE
 
-Replace the hard-boundary merge in `src/transcript/merge.py:_best_speaker` with a soft attribution computed from Sortformer's raw per-frame probabilities.
-
-How:
-- Pass `include_tensor_outputs=True` to `model.diarize(...)` in `src/transcript/diarize.py`. NeMo then returns a `[T_frames × 4]` probability tensor alongside the segments.
-- In `merge.assign_speakers`, for each word, average the probabilities over the frames that fall within `[word.start, word.end]` (timestamps are now precise thanks to forced alignment) and take `argmax`.
-
-Targets the two residual error patterns left after alignment:
-- **Boundary timing off by 1–2 words** — fixed at the source: a word straddling a turn boundary gets attributed to whichever speaker the model was actually more confident about during the word's audio, not by midpoint geometry.
-- **Stranded short islands** ("Bobby Lapointe" alone as S2) — suppressed: a 200 ms blip in the probability tensor won't stand alone if the surrounding frames don't truly peak for that speaker.
-
-No new deps, no version bumps — Sortformer v1 already supports the tensor output mode. Probably obsoletes the LLM-cleanup path entirely on real audio.
+Shipped: implemented as `merge.strategy = "prob_based"` knob. Sortformer now
+emits the [T x 4] per-frame probability tensor when `DiarizeConfig.emit_probs`
+is true; `merge._best_speaker_prob_based` averages over each word's frame
+window and argmaxes. The new strategy is tested against the hard-boundary
+variant in the bench harness (see #3).
 
 ## 2. Sortformer v2.1 — DONE
 
@@ -27,15 +21,12 @@ out to be illusory: transformers 4.57.6 (pulled in by NeMo 2.7.3) accepts
 both `dtype=` and the legacy `torch_dtype=`, so `align.py`'s manual model
 load needed only a one-character kwarg switch.
 
-## 3. Quantitative evaluation on real datasets
+## 3. Quantitative benchmarking on real datasets — DONE
 
-Replace the current "eyeball one voice-memo" workflow with reproducible Diarization Error Rate (DER) and Word Error Rate (WER) measurements against published transcripts.
-
-Candidates:
-
-- **`edinburghcstr/ami`** — ~29 GB total. Two configs: `ihm` (individual headset mics) and `sdm` (single distant mic), each ~half. 16 kHz parquet. Test split alone is ~12.6k short rows. Standard benchmark, lots of comparison numbers exist.
-- **`linagora/SUMM-RE`** — ~93.8 GB total. Train is the bulk (~226 h of tracks). The manually-transcribed `dev` (~43 h) + `test` (~41 h) are what we actually want — together ~25–30 GB. Dataset viewer is disabled because parquet row groups exceed limits, so plan to stream rather than full-download.
-
-Minimal harness:
-- Script in `scripts/` that loads N random clips, runs the pipeline, compares to reference RTTM (for DER) and reference text (for WER).
-- Print pre-fix / post-fix scores for each pipeline change (whisper params, post-proc YAML, alignment on/off, prob-based assignment on/off) so we stop arguing from one-shot voice-memo impressions.
+Shipped: `scripts/benchmark.py` runs a three-tier search on AMI (sdm split)
+and SUMM-RE (dev split) using cpWER (via meeteval) as the primary metric,
+with WER, DER, and a "speaker-assignment error rate" (cpWER - WER) as
+secondary diagnostics. Results are appended to `bench/results/runs.csv` and
+auto-summarised in `bench/results/leaderboard.md`. Per-row hypothesis and
+diff artefacts are persisted under `bench/results/{transcripts,diffs}/` for
+post-hoc failure-mode analysis.
