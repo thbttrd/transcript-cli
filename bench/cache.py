@@ -4,6 +4,7 @@ Each cached artefact's key incorporates a sha1 of the input audio plus only
 the config fields that affect that stage's output. Serialisation: JSON for
 structured data, NumPy `.npy` for tensors — no opaque binary formats.
 """
+import functools
 import hashlib
 import json
 from dataclasses import asdict
@@ -15,12 +16,17 @@ from transcript.models import Turn, Word
 from transcript.pipeline_config import DiarizeConfig, TranscribeConfig
 
 
-def audio_sha1(audio_path: Path) -> str:
+@functools.cache
+def _audio_sha1_by_resolved(resolved: str) -> str:
     h = hashlib.sha1()
-    with audio_path.open("rb") as f:
+    with open(resolved, "rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def audio_sha1(audio_path: Path) -> str:
+    return _audio_sha1_by_resolved(str(audio_path.resolve()))
 
 
 def _hash(*parts: str) -> str:
