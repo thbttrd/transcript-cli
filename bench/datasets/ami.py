@@ -45,9 +45,12 @@ class AMIDataset:
         return runtime
 
     def _load_index(self) -> list[dict]:
+        if hasattr(self, "_index_cache"):
+            return self._index_cache
         from datasets import load_dataset
         ds = load_dataset(_HF_DATASET, _HF_CONFIG, split="test")
         seen: dict[str, dict] = {}
+        stm_rows: dict[str, list[dict]] = {}
         for row in ds:
             mid = row["meeting_id"]
             if mid not in seen:
@@ -57,7 +60,32 @@ class AMIDataset:
                     "duration": float(row["audio"]["array"].shape[0])
                                 / float(row["audio"]["sampling_rate"]),
                 }
-        return list(seen.values())
+            stm_rows.setdefault(mid, []).append({
+                "speaker_id": row.get("speaker_id", "Speaker_1"),
+                "begin_time": float(row["begin_time"]),
+                "end_time":   float(row["end_time"]),
+                "text":       row["text"],
+            })
+        self._index_cache = list(seen.values())
+        self._stm_rows_by_meeting = stm_rows
+        return self._index_cache
+
+    def _write_ami_stm(self, meeting_id: str, out: Path) -> None:
+        """Write STM rows for one meeting from the cached HF index."""
+        # _load_index must have been called first to populate _stm_rows_by_meeting
+        if not hasattr(self, "_stm_rows_by_meeting"):
+            self._load_index()
+        rows = self._stm_rows_by_meeting.get(meeting_id, [])
+        lines = []
+        for r in rows:
+            speaker = r["speaker_id"]
+            begin = r["begin_time"]
+            end = r["end_time"]
+            text = r["text"]
+            lines.append(
+                f"{meeting_id} 1 {speaker} {begin:.2f} {end:.2f} <NA> {text}"
+            )
+        out.write_text("\n".join(lines))
 
     def _prepare_clip(self, meeting: dict) -> BenchClip | None:
         from transcript import audio as audio_mod
@@ -78,7 +106,7 @@ class AMIDataset:
 
         stm_file = wav_path.with_suffix(".stm")
         if not stm_file.exists():
-            _ami_stm_for(meeting_id, stm_file)
+            self._write_ami_stm(meeting_id, stm_file)
 
         return BenchClip(
             clip_id=f"AMI:{meeting_id}",
@@ -114,21 +142,3 @@ def _count_rttm_speakers(rttm_path: Path) -> int:
         if len(parts) >= 8 and parts[0] == "SPEAKER":
             speakers.add(parts[7])
     return len(speakers)
-
-
-def _ami_stm_for(meeting_id: str, out: Path) -> None:
-    """Build an STM file from AMI manual transcripts."""
-    from datasets import load_dataset
-    ds = load_dataset(_HF_DATASET, _HF_CONFIG, split="test")
-    lines = []
-    for row in ds:
-        if row["meeting_id"] != meeting_id:
-            continue
-        speaker = row.get("speaker_id", "Speaker_1")
-        begin = float(row["begin_time"])
-        end = float(row["end_time"])
-        text = row["text"]
-        lines.append(
-            f"{meeting_id} 1 {speaker} {begin:.2f} {end:.2f} <NA> {text}"
-        )
-    out.write_text("\n".join(lines))
