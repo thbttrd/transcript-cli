@@ -5,8 +5,10 @@ bench/datasets/ami_rttm/. AMI audio is pulled from `edinburghcstr/ami` HF
 dataset (sdm config — single distant mic) and pre-prepared into 16 kHz mono
 WAVs cached under bench/cache/audio/ami/.
 
-If the vendored RTTM directory is empty on first run, attempt to clone the
-BUT repo into bench/cache/ami_rttm/ as a fallback (warns the user).
+If the vendored RTTM directory is empty on first run, the loader git-clones
+the BUT repo into bench/cache/ami_rttm/ and descends into the nested
+`only_words/rttms/` directory. Flat layouts at the clone root are also
+accepted so manually placed RTTMs work too.
 """
 import logging
 import random
@@ -23,6 +25,23 @@ _HF_CONFIG  = "sdm"  # single distant mic
 _BUT_REPO   = "https://github.com/BUTSpeechFIT/AMI-diarization-setup.git"
 
 
+def _vendored_rttm_dir() -> Path:
+    return Path(__file__).parent / "ami_rttm"
+
+
+def _find_rttm_dir(root: Path) -> Path | None:
+    """Return the deepest dir under ``root`` that contains *.rttm files.
+
+    The BUT repo nests RTTMs under ``only_words/rttms/``; manually placed
+    RTTMs may live flat at ``root``. Returns ``None`` if no RTTMs anywhere.
+    """
+    if any(root.glob("only_words/rttms/*.rttm")):
+        return root / "only_words" / "rttms"
+    if any(root.glob("*.rttm")):
+        return root
+    return None
+
+
 class AMIDataset:
     name = "AMI"
 
@@ -36,7 +55,7 @@ class AMIDataset:
 
     @staticmethod
     def _resolve_rttm_dir(cache_dir: Path) -> Path:
-        vendored = Path(__file__).parent / "ami_rttm"
+        vendored = _vendored_rttm_dir()
         if vendored.exists() and any(vendored.glob("*.rttm")):
             return vendored
         runtime = cache_dir / "ami_rttm"
@@ -53,13 +72,14 @@ class AMIDataset:
                     f"Could not fetch BUT RTTM repo from {_BUT_REPO}. "
                     f"Vendor RTTMs into {vendored} instead. Underlying: {stderr.strip()}"
                 ) from e
-        # BUG: the BUT repo nests RTTMs under `<runtime>/only_words/rttms/<id>.rttm`
-        # (and `<runtime>/AMI/only_words/rttms/<id>.rttm` for word-level alignments).
-        # Returning the clone root means `_prepare_clip` will see every meeting as
-        # "no RTTM" and silently skip it. To unblock the first benchmark run, either
-        # vendor RTTMs into bench/datasets/ami_rttm/ (preferred) or descend into the
-        # nested layout after clone — but the exact subdirectory varies by AMI split.
-        return runtime
+        found = _find_rttm_dir(runtime)
+        if found is None:
+            raise RuntimeError(
+                f"No RTTM files found under {runtime} (checked the BUT nested "
+                f"layout only_words/rttms/ and the flat layout). Vendor RTTMs "
+                f"into {vendored} or re-clone the BUT repo."
+            )
+        return found
 
     def _load_index(self) -> list[dict]:
         if self._index_cache is not None:
