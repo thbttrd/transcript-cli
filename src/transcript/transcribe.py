@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from transcript import config
+from transcript import config as transcript_config
 from transcript.models import Word
 
 
@@ -38,19 +38,17 @@ def _detected_language(data: dict, fallback: str | None) -> str:
     return data.get("result", {}).get("language") or fallback or "auto"
 
 
-def run(wav_path: Path, *, model: str, language: str | None) -> tuple[list[Word], str]:
-    """Transcribe a 16 kHz mono WAV using whisper.cpp.
+def run(wav_path: Path, *, config) -> tuple[list[Word], str]:
+    """Transcribe a 16 kHz mono WAV using whisper.cpp."""
+    from transcript.pipeline_config import TranscribeConfig
+    assert isinstance(config, TranscribeConfig)
 
-    Returns (words, language) where `language` is the ISO 639-1 code whisper.cpp
-    actually used — either the explicit `language` arg, or what whisper detected
-    from the first 30 s of audio when `language=None` was passed.
-    """
-    binary = config.whisper_binary()
+    binary = transcript_config.whisper_binary()
     if not binary.exists():
         raise TranscribeError(
             f"whisper.cpp binary not found at {binary}. Run scripts/install.sh."
         )
-    model_path = config.whisper_model(model)
+    model_path = transcript_config.whisper_model(config.model)
     if not model_path.exists():
         raise TranscribeError(
             f"whisper model {model_path.name} not found. Run scripts/install.sh."
@@ -58,25 +56,23 @@ def run(wav_path: Path, *, model: str, language: str | None) -> tuple[list[Word]
 
     with tempfile.TemporaryDirectory(prefix="transcript-") as tmpdir:
         out_prefix = Path(tmpdir) / "whisper-out"
-        cmd = [
+        cmd: list[str] = [
             str(binary),
             "-m", str(model_path),
             "-f", str(wav_path),
-            "-l", language or "auto",
+            "-l", config.language or "auto",
             "-ml", "1",
             "--split-on-word",
-            # Disable temperature fallback (default retries at temp 0.2, 0.4, …
-            # when logprob/compression checks fail). Fallbacks are the main
-            # source of hallucinations on hard audio — better to occasionally
-            # drop a tricky sentence than to confabulate one.
-            "--no-fallback",
-            # Suppress non-speech tokens — reduces noise/music → French
-            # confabulation, including spurious "La la la" runs from singing.
-            "--suppress-nst",
+            "--temperature", str(config.temperature),
             "-ojf",
             "-of", str(out_prefix),
             "--no-prints",
         ]
+        if config.no_fallback:
+            cmd.append("--no-fallback")
+        if config.suppress_nst:
+            cmd.append("--suppress-nst")
+
         try:
             subprocess.run(cmd, capture_output=True, check=True)
         except subprocess.CalledProcessError as e:
@@ -85,4 +81,4 @@ def run(wav_path: Path, *, model: str, language: str | None) -> tuple[list[Word]
 
         json_file = Path(str(out_prefix) + ".json")
         data = json.loads(json_file.read_text())
-        return _parse_words(data), _detected_language(data, language)
+        return _parse_words(data), _detected_language(data, config.language)
