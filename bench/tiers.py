@@ -71,6 +71,17 @@ def tier_3_configs(tier_2_rows: Iterable[dict],
                    primary_threshold: float = 1.0,
                    relaxed_threshold: float = 2.0,
                    cap: int = 5) -> list[PipelineConfig]:
+    """Pick the top-K tier-2 fingerprints by median cpWER within `primary_threshold`
+    absolute points of the best; relax to `relaxed_threshold` if fewer than 3 qualify;
+    cap at `cap` finalists.
+
+    NOTE: each finalist's `PipelineConfig` is rebuilt with ONLY `merge_strategy`
+    carried through from the winning row — every other axis falls back to its
+    dataclass default. This intentionally narrows tier-3 to a focused
+    hard_boundary-vs-prob_based race after tier-2 has already settled the other
+    axes; if you want to replay the full winning config, extend `_build_config`
+    to receive the full row tuple.
+    """
     rows = list(tier_2_rows)
     if not rows:
         return []
