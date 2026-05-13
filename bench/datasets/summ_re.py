@@ -32,9 +32,11 @@ class SUMMREDataset:
             by_meeting.setdefault(row["meeting_id"], []).append(row)
         return by_meeting.items()
 
-    def _prepare_clip(self, meeting_id: str, tracks: list[dict]) -> BenchClip | None:
+    def _prepare_clip(self, meeting_id: str, tracks: list[dict],
+                       max_duration_s: float | None = None) -> BenchClip | None:
         from transcript import audio as audio_mod
-        wav_path = self.audio_dir / f"{meeting_id}.wav"
+        stem = meeting_id if max_duration_s is None else f"{meeting_id}_{int(max_duration_s)}s"
+        wav_path = self.audio_dir / f"{stem}.wav"
         rttm_path = wav_path.with_suffix(".rttm")
         stm_path  = wav_path.with_suffix(".stm")
 
@@ -47,12 +49,14 @@ class SUMMREDataset:
                     p = td_path / f"{tr['audio_id']}.wav"
                     sf.write(p, tr["audio"]["array"], tr["audio"]["sampling_rate"])
                     track_paths.append(p)
-                _mix_tracks(track_paths, out_path=wav_path)
+                _mix_tracks(track_paths, out_path=wav_path, max_duration_s=max_duration_s)
 
         if not rttm_path.exists():
-            _synthesise_rttm(tracks, meeting_id=meeting_id, out_path=rttm_path)
+            _synthesise_rttm(tracks, meeting_id=meeting_id, out_path=rttm_path,
+                             max_duration_s=max_duration_s)
         if not stm_path.exists():
-            _synthesise_stm(tracks, meeting_id=meeting_id, out_path=stm_path)
+            _synthesise_stm(tracks, meeting_id=meeting_id, out_path=stm_path,
+                            max_duration_s=max_duration_s)
 
         if not rttm_path.read_text().strip():
             _log.warning("SUMM-RE: skipping %s — synthesised RTTM is empty", meeting_id)
@@ -83,10 +87,8 @@ class SUMMREDataset:
         rng.shuffle(meetings)
         clips: list[BenchClip] = []
         for meeting_id, tracks in meetings:
-            clip = self._prepare_clip(meeting_id, tracks)
+            clip = self._prepare_clip(meeting_id, tracks, max_duration_s=max_duration_s)
             if clip is None:
-                continue
-            if max_duration_s is not None and clip.duration_s > max_duration_s:
                 continue
             clips.append(clip)
             if len(clips) >= n:
@@ -94,17 +96,21 @@ class SUMMREDataset:
         return clips
 
 
-def _mix_tracks(track_paths: list[Path], *, out_path: Path) -> None:
-    """ffmpeg amix N tracks → 16 kHz mono PCM16 WAV."""
+def _mix_tracks(track_paths: list[Path], *, out_path: Path,
+                max_duration_s: float | None = None) -> None:
+    """ffmpeg amix N tracks → 16 kHz mono PCM16 WAV. If ``max_duration_s`` is
+    set, the output is clipped to that length via ffmpeg ``-t``."""
     n = len(track_paths)
     inputs: list[str] = []
     for p in track_paths:
         inputs += ["-i", str(p)]
+    duration_args = ["-t", str(max_duration_s)] if max_duration_s else []
     cmd = [
         "ffmpeg", "-loglevel", "error", "-y",
         *inputs,
         "-filter_complex", f"amix=inputs={n}:duration=longest:normalize=0",
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+        *duration_args,
         str(out_path),
     ]
     try:
@@ -114,32 +120,45 @@ def _mix_tracks(track_paths: list[Path], *, out_path: Path) -> None:
         raise RuntimeError(f"ffmpeg amix failed: {stderr.strip()}") from e
 
 
-def _synthesise_rttm(tracks: list[dict], *, meeting_id: str, out_path: Path) -> None:
+def _synthesise_rttm(tracks: list[dict], *, meeting_id: str, out_path: Path,
+                      max_duration_s: float | None = None) -> None:
     lines = []
     for tr in tracks:
         spk = tr["speaker_id"]
         for seg in tr.get("segments", []):
             start = float(seg["start"])
-            dur = float(seg["end"]) - start
+            end = float(seg["end"])
+            if max_duration_s is not None:
+                if start >= max_duration_s:
+                    continue
+                end = min(end, max_duration_s)
+            dur = end - start
             lines.append(
                 f"SPEAKER {meeting_id} 1 {start:.3f} {dur:.3f} <NA> <NA> {spk} <NA> <NA>"
             )
     out_path.write_text("\n".join(lines))
 
 
-def _synthesise_stm(tracks: list[dict], *, meeting_id: str, out_path: Path) -> None:
+def _synthesise_stm(tracks: list[dict], *, meeting_id: str, out_path: Path,
+                     max_duration_s: float | None = None) -> None:
     """One STM line per (speaker, sorted-by-start segment), text concatenated from words."""
     rows: list[tuple[float, float, str, str]] = []
     for tr in tracks:
         spk = tr["speaker_id"]
         for seg in tr.get("segments", []):
+            start = float(seg["start"])
+            end = float(seg["end"])
+            if max_duration_s is not None:
+                if start >= max_duration_s:
+                    continue
+                end = min(end, max_duration_s)
             words = seg.get("words") or []
             text = " ".join(w["word"] for w in words).strip()
             if not text:
                 text = seg.get("transcript", "").strip()
             if not text:
                 continue
-            rows.append((float(seg["start"]), float(seg["end"]), spk, text))
+            rows.append((start, end, spk, text))
     rows.sort()
     lines = [
         stm_line(meeting_id, spk, s, e, text)

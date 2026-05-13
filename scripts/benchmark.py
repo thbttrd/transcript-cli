@@ -15,9 +15,9 @@ from bench.datasets.summ_re import SUMMREDataset  # noqa: E402
 from transcript.pipeline_config import PipelineConfig  # noqa: E402
 
 _TIER_PRESETS = {
-    1: {"clip_count": 3, "max_duration_s": 150.0},
-    2: {"clip_count": 10, "max_duration_s": 600.0},
-    3: {"clip_count": 50, "max_duration_s": None},
+    1: {"clip_count": 3,  "max_duration_s": 300.0},   # 5-min clips, quick smoke
+    2: {"clip_count": 10, "max_duration_s": 900.0},   # 15-min clips, narrow axes
+    3: {"clip_count": 50, "max_duration_s": None},    # full meetings, finalists
 }
 
 
