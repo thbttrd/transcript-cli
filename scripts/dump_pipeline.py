@@ -25,7 +25,7 @@ def main() -> int:
     print(f"# audio: {args.audio_file}  ({dur:.2f}s, wav={wav})\n")
 
     print("## raw NeMo Sortformer turns")
-    turns, _probs = diarize.run(wav, config=DiarizeConfig(num_speakers=args.speakers))
+    turns = diarize.run(wav, config=DiarizeConfig(num_speakers=args.speakers))
     for t in turns:
         print(f"  {t.speaker:9s}  {t.start:6.2f} → {t.end:6.2f}  ({t.end - t.start:.2f}s)")
 
