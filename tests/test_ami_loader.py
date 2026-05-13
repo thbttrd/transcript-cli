@@ -160,13 +160,13 @@ def test_build_meeting_wav_places_utterances_at_correct_offsets(tmp_path, monkey
     assert abs(data[int(1.1 * sr)] - 0.5) < 0.1
 
 
-def test_build_meeting_wav_handles_overlapping_utterances(tmp_path, monkeypatch):
-    """First-writer-wins for overlaps: AMI sdm rows in overlap regions are
-    slices of the same source audio, so doubling the amplitude (e.g. by sum)
-    would be wrong. Earlier begin_time gets to write."""
+def test_build_meeting_wav_sums_overlapping_speakers(tmp_path, monkeypatch):
+    """AMI ihm: each row is one speaker's headset audio. Overlapping rows are
+    different speakers whose headsets capture different audio, so the right
+    mix is SUM (simulates a single mic-in-the-middle picking up everyone)."""
     sr = 16000
-    a = np.full(int(0.5 * sr), 0.3, dtype=np.float32)  # 0.0 → 0.5
-    b = np.full(int(0.5 * sr), 0.4, dtype=np.float32)  # 0.2 → 0.7, overlaps A
+    a = np.full(int(0.5 * sr), 0.1, dtype=np.float32)  # 0.0 → 0.5
+    b = np.full(int(0.5 * sr), 0.2, dtype=np.float32)  # 0.2 → 0.7
     rows = [
         _utterance("M1", "A", 0.0, 0.5, a, sr),
         _utterance("M1", "B", 0.2, 0.7, b, sr),
@@ -179,10 +179,33 @@ def test_build_meeting_wav_handles_overlapping_utterances(tmp_path, monkeypatch)
     _build_meeting_wav("M1", out)
 
     data, _ = sf.read(out)
-    # A wrote [0.0, 0.5] first → buf[0.3s] is A's value (0.3), not 0.7.
+    # Overlap region [0.2, 0.5] = A + B = 0.3 (peak 0.3 < 0.95 → no normalize)
     assert abs(data[int(0.3 * sr)] - 0.3) < 0.05
-    # B writes only the non-overlapping tail [0.5, 0.7] → buf[0.6s] is 0.4.
-    assert abs(data[int(0.6 * sr)] - 0.4) < 0.05
+    # A only [0.0, 0.2] = 0.1; B only [0.5, 0.7] = 0.2
+    assert abs(data[int(0.1 * sr)] - 0.1) < 0.05
+    assert abs(data[int(0.6 * sr)] - 0.2) < 0.05
+
+
+def test_build_meeting_wav_normalizes_peak_to_avoid_clipping(tmp_path, monkeypatch):
+    """If the summed buffer's peak exceeds 0.95 (risk of clipping after PCM-16
+    quantisation), scale the whole buffer down so peak == 0.95."""
+    sr = 16000
+    a = np.full(int(0.5 * sr), 0.6, dtype=np.float32)
+    b = np.full(int(0.5 * sr), 0.6, dtype=np.float32)
+    rows = [
+        _utterance("M1", "A", 0.0, 0.5, a, sr),
+        _utterance("M1", "B", 0.0, 0.5, b, sr),  # full overlap → sum=1.2
+    ]
+    monkeypatch.setattr(
+        "bench.datasets.ami._load_dataset", lambda *a, **kw: rows
+    )
+
+    out = tmp_path / "M1.wav"
+    _build_meeting_wav("M1", out)
+
+    data, _ = sf.read(out)
+    # Peak should be normalised to ~0.95 (allow PCM-16 rounding slack)
+    assert 0.92 < abs(data).max() <= 0.96
 
 
 def test_build_meeting_wav_truncates_to_max_duration(tmp_path, monkeypatch):
