@@ -133,6 +133,18 @@ def run_one_tier(
     csv_path = results_dir / "runs.csv"
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not csv_path.exists()
+    if not is_new:
+        # Defensive: csv.DictWriter writes per-field by name, so an existing
+        # file with a stale header would silently misalign every appended row.
+        # Archive (e.g. mv runs.csv runs.v<N>.csv) and retry.
+        with csv_path.open() as f:
+            existing_header = next(csv.reader(f), [])
+        if existing_header != CSV_COLUMNS:
+            raise RuntimeError(
+                f"runs.csv header mismatch — archive {csv_path} (e.g. rename "
+                f"to runs.v<N>.csv) and retry. Expected {CSV_COLUMNS}, "
+                f"got {existing_header}."
+            )
 
     with csv_path.open("a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
