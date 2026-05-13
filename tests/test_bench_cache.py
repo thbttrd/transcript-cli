@@ -31,7 +31,7 @@ def test_audio_sha1_is_deterministic_and_hex(tmp_path):
 def test_whisper_key_changes_only_when_relevant_fields_change(tmp_path):
     wav = _make_wav(tmp_path)
     cfg_a = TranscribeConfig(model="large-v3", language="fr")
-    cfg_b = TranscribeConfig(model="large-v3", language="fr", no_fallback=False)
+    cfg_b = TranscribeConfig(model="large-v3", language="fr", no_fallback=True)
     cfg_c = TranscribeConfig(model="large-v3", language="fr")
     assert whisper_key(wav, cfg_a) != whisper_key(wav, cfg_b)
     assert whisper_key(wav, cfg_a) == whisper_key(wav, cfg_c)
@@ -62,7 +62,7 @@ def test_save_and_load_sortformer_roundtrips(tmp_path):
 def test_align_key_includes_whisper_hash(tmp_path):
     wav = _make_wav(tmp_path)
     cfg_a = TranscribeConfig(language="fr")
-    cfg_b = TranscribeConfig(language="fr", no_fallback=False)
+    cfg_b = TranscribeConfig(language="fr", no_fallback=True)
     h_a = align_key(wav, whisper_key(wav, cfg_a), language="fr")
     h_b = align_key(wav, whisper_key(wav, cfg_b), language="fr")
     assert h_a != h_b
