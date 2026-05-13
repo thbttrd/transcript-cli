@@ -20,6 +20,7 @@ relies on. Cache the meetings you want to pin and the same set will be picked
 up on warm runs.
 """
 import logging
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -30,6 +31,9 @@ _log = logging.getLogger(__name__)
 
 _HF_DATASET = "linagora/SUMM-RE"
 _HF_SPLIT = "dev"
+# Matches the duration suffix added by _prepare_clip — e.g. "_60s", "_900s".
+# Used to distinguish full-length cache entries from truncated ones.
+_DURATION_SUFFIX_RE = re.compile(r"_\d+s$")
 
 
 def _load_dataset(*args, **kwargs):
@@ -62,6 +66,22 @@ class SUMMREDataset:
         self.audio_dir = cache_dir / "audio" / "summ_re"
         self.audio_dir.mkdir(parents=True, exist_ok=True)
 
+    def _warn_orphan_clips(self) -> None:
+        """Surface WAVs without their .rttm/.stm siblings — almost always the
+        result of an interrupted prior streaming run. Silently re-streaming
+        each time would waste bandwidth; warning lets the user clean up."""
+        for wav_path in sorted(self.audio_dir.glob("*.wav")):
+            missing = [
+                ext for ext in ("rttm", "stm")
+                if not wav_path.with_suffix(f".{ext}").exists()
+            ]
+            if missing:
+                _log.warning(
+                    "SUMM-RE: orphan cache entry %s (missing .%s) — likely an "
+                    "interrupted previous run; rm to re-stream or ignore",
+                    wav_path, ", .".join(missing),
+                )
+
     def _cached_clips(self, max_duration_s: float | None,
                        limit: int) -> list[BenchClip]:
         """Return up to ``limit`` BenchClips reconstructed from on-disk cache.
@@ -80,10 +100,12 @@ class SUMMREDataset:
             if suffix and not stem.endswith(suffix):
                 continue
             meeting_id = stem[:-len(suffix)] if suffix else stem
-            if not meeting_id or "_" in meeting_id and meeting_id.endswith("s") and not suffix:
-                # Skip stems that look like they belong to a different
-                # max_duration_s slicing (e.g. "<id>_60s.wav" when we're after
-                # full-length clips).
+            if not meeting_id:
+                continue
+            # When asked for full-length clips, skip stems that carry a
+            # duration suffix (e.g. "<id>_60s.wav") so we don't mistake a
+            # truncated cache entry for the real meeting.
+            if not suffix and _DURATION_SUFFIX_RE.search(meeting_id):
                 continue
             rttm_path = wav_path.with_suffix(".rttm")
             stm_path  = wav_path.with_suffix(".stm")
@@ -169,6 +191,7 @@ class SUMMREDataset:
         tracks (~30-60 MB for a 30-minute meeting), not the whole split.
         """
         del seed  # see module docstring — currently unused.
+        self._warn_orphan_clips()
         cached = self._cached_clips(max_duration_s, limit=n)
         if len(cached) >= n:
             _log.info("SUMM-RE: %d cached clip(s) cover the request, skipping stream", n)

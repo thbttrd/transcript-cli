@@ -184,6 +184,10 @@ class AMIDataset:
             return vendored
         runtime = cache_dir / "ami_rttm"
         if not runtime.exists():
+            _log.info(
+                "AMI: cloning BUT RTTM repo %s into %s (one-off ~30s download) …",
+                _BUT_REPO, runtime,
+            )
             try:
                 subprocess.run(
                     ["git", "clone", "--depth", "1", _BUT_REPO, str(runtime)],
@@ -198,10 +202,14 @@ class AMIDataset:
                 ) from e
         found = _find_rttm_dir(runtime)
         if found is None:
+            # The directory exists but has no per-meeting RTTMs — usually means
+            # a previous clone was interrupted, leaving a half-populated tree.
             raise RuntimeError(
-                f"No RTTM files found under {runtime} (checked the BUT nested "
-                f"layout only_words/rttms/ and the flat layout). Vendor RTTMs "
-                f"into {vendored} or re-clone the BUT repo."
+                f"No RTTM files found under {runtime}. The directory exists "
+                f"but neither the BUT nested layout (only_words/rttms/test/) "
+                f"nor the flat layout has any *.rttm files — likely a partial "
+                f"clone. Remove {runtime} and retry, or vendor RTTMs into "
+                f"{vendored}."
             )
         return found
 
