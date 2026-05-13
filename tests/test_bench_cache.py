@@ -1,5 +1,3 @@
-import numpy as np
-
 from bench.cache import (
     align_key,
     audio_sha1,
@@ -53,26 +51,12 @@ def test_load_whisper_returns_none_on_miss(tmp_path):
     assert load_whisper(wav, cfg, cache_dir=tmp_path) is None
 
 
-def test_save_and_load_sortformer_roundtrips_without_probs(tmp_path):
+def test_save_and_load_sortformer_roundtrips(tmp_path):
     wav = _make_wav(tmp_path)
     cfg = DiarizeConfig()
     turns = [Turn("Speaker 1", 0.0, 1.0)]
-    save_sortformer(wav, cfg, turns, probs=None, cache_dir=tmp_path)
-    loaded_turns, loaded_probs = load_sortformer(wav, cfg, cache_dir=tmp_path)
-    assert loaded_turns == turns
-    assert loaded_probs is None
-
-
-def test_save_and_load_sortformer_roundtrips_with_probs(tmp_path):
-    wav = _make_wav(tmp_path)
-    cfg = DiarizeConfig(emit_probs=True)
-    turns = [Turn("Speaker 1", 0.0, 1.0)]
-    probs = np.random.RandomState(0).rand(20, 4).astype(np.float32)
-    save_sortformer(wav, cfg, turns, probs=probs, cache_dir=tmp_path)
-    loaded_turns, loaded_probs = load_sortformer(wav, cfg, cache_dir=tmp_path)
-    assert loaded_turns == turns
-    assert loaded_probs is not None
-    np.testing.assert_array_equal(loaded_probs, probs)
+    save_sortformer(wav, cfg, turns, cache_dir=tmp_path)
+    assert load_sortformer(wav, cfg, cache_dir=tmp_path) == turns
 
 
 def test_align_key_includes_whisper_hash(tmp_path):

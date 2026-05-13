@@ -1,11 +1,9 @@
 """Tier config generators.
 
-Tier 1: full Cartesian product of the 5 tunable axes (whisper model is pinned
-        at large-v3; llm_fix is pinned at False). 32 configs.
+Tier 1: full Cartesian product of the 4 tunable axes (whisper model is pinned
+        at large-v3; llm_fix is pinned at False). 16 configs.
 Tier 2: drop axes whose effect size (max-min cpWER across the axis's values)
         is below 0.5 absolute cpWER points; product over the rest.
-Tier 3: configs whose median cpWER <= best + 1.0 absolute points (capped at 5);
-        relax to 2.0 points if fewer than 3 qualify.
 """
 from collections.abc import Iterable
 from itertools import product
@@ -13,7 +11,6 @@ from itertools import product
 from transcript.pipeline_config import (
     AlignConfig,
     DiarizeConfig,
-    MergeConfig,
     PipelineConfig,
     TranscribeConfig,
 )
@@ -23,15 +20,14 @@ _AXES_BOOL: dict[str, list] = {
     "suppress_nst":    [True, False],
     "streaming_preset": ["very_high_lat", "low_lat"],
     "align":           [True, False],
-    "merge_strategy":  ["hard_boundary", "prob_based"],
 }
 
 
 def tier_1_configs() -> list[PipelineConfig]:
-    """Full 32-config grid."""
+    """Full 16-config grid."""
     configs: list[PipelineConfig] = []
-    for nf, sn, sp, al, mg in product(*_AXES_BOOL.values()):
-        configs.append(_build_config(nf, sn, sp, al, mg))
+    for nf, sn, sp, al in product(*_AXES_BOOL.values()):
+        configs.append(_build_config(nf, sn, sp, al))
     return configs
 
 
@@ -67,49 +63,11 @@ def tier_2_configs(tier_1_rows: Iterable[dict],
     return configs
 
 
-def tier_3_configs(tier_2_rows: Iterable[dict],
-                   primary_threshold: float = 1.0,
-                   relaxed_threshold: float = 2.0,
-                   cap: int = 5) -> list[PipelineConfig]:
-    """Pick the top-K tier-2 fingerprints by median cpWER within `primary_threshold`
-    absolute points of the best; relax to `relaxed_threshold` if fewer than 3 qualify;
-    cap at `cap` finalists.
-
-    NOTE: each finalist's `PipelineConfig` is rebuilt with ONLY `merge_strategy`
-    carried through from the winning row — every other axis falls back to its
-    dataclass default. This intentionally narrows tier-3 to a focused
-    hard_boundary-vs-prob_based race after tier-2 has already settled the other
-    axes; if you want to replay the full winning config, extend `_build_config`
-    to receive the full row tuple.
-    """
-    rows = list(tier_2_rows)
-    if not rows:
-        return []
-    by_fp: dict[str, list[float]] = {}
-    for r in rows:
-        by_fp.setdefault(r["fingerprint"], []).append(r["cpwer"])
-    ranked = sorted(
-        ((fp, sorted(cs)[len(cs) // 2]) for fp, cs in by_fp.items()),
-        key=lambda x: x[1],
-    )
-    best = ranked[0][1]
-    threshold = primary_threshold
-    finalists = [(fp, c) for fp, c in ranked if (c - best) * 100 <= threshold]
-    if len(finalists) < 3:
-        threshold = relaxed_threshold
-        finalists = [(fp, c) for fp, c in ranked if (c - best) * 100 <= threshold]
-    finalists = finalists[:cap]
-    return [_build_config(merge_strategy=next(
-        r["merge_strategy"] for r in rows if r["fingerprint"] == fp
-    )) for fp, _ in finalists]
-
-
 def _build_config(no_fallback: bool = True, suppress_nst: bool = True,
-                  streaming_preset: str = "very_high_lat", align: bool = True,
-                  merge_strategy: str = "hard_boundary") -> PipelineConfig:
+                  streaming_preset: str = "very_high_lat",
+                  align: bool = True) -> PipelineConfig:
     return PipelineConfig(
         transcribe=TranscribeConfig(no_fallback=no_fallback, suppress_nst=suppress_nst),
         diarize=DiarizeConfig(streaming_preset=streaming_preset),
         align=AlignConfig(enabled=align),
-        merge=MergeConfig(strategy=merge_strategy),
     )

@@ -12,18 +12,17 @@ CSV_HEADER = ",".join(runner.CSV_COLUMNS)
 def _row(**kw) -> str:
     """Build one CSV row using sensible defaults for the columns we don't care about."""
     defaults = {
-        "tier": "3", "dataset": "AMI", "clip_id": "AMI:m1",
+        "tier": "2", "dataset": "AMI", "clip_id": "AMI:m1",
         "config_id": "abc", "config_fingerprint": "abc",
         "no_fallback": "True", "suppress_nst": "True",
         "streaming_preset": "very_high_lat", "align": "True",
-        "merge_strategy": "hard_boundary",
         "cpwer": "0.10", "wer": "0.08", "der": "0.05",
         "speaker_assignment_error_rate": "0.02",
         "runtime_s": "1.5", "whisper_s": "1.0", "sortformer_s": "0.4",
         "align_s": "0.05", "merge_s": "0.05",
         "git_sha": "deadbee", "started_at": "0", "host": "localhost",
-        "hypothesis_path": "transcripts/tier-3/AMI_m1/abc.json",
-        "diff_path": "diffs/tier-3/AMI_m1/abc.json",
+        "hypothesis_path": "transcripts/tier-2/AMI_m1/abc.json",
+        "diff_path": "diffs/tier-2/AMI_m1/abc.json",
     }
     defaults.update(kw)
     return ",".join(defaults[c] for c in runner.CSV_COLUMNS)
@@ -40,24 +39,24 @@ def test_generate_leaderboard_ranks_configs_by_median_cpwer(tmp_path):
     csv_path.write_text(
         "\n".join([
             CSV_HEADER,
-            _row(merge_strategy="prob_based",   cpwer="0.05", config_fingerprint="p"),
-            _row(merge_strategy="hard_boundary", cpwer="0.10", config_fingerprint="h"),
+            _row(streaming_preset="low_lat",        cpwer="0.05", config_fingerprint="l"),
+            _row(streaming_preset="very_high_lat",  cpwer="0.10", config_fingerprint="v"),
         ]) + "\n"
     )
     out = runner.generate_leaderboard(results_dir=tmp_path)
     md = out.read_text()
-    assert "# Benchmark leaderboard (tier 3, median)" in md
+    assert "# Benchmark leaderboard (tier 2, median)" in md
     assert "## AMI" in md
-    # The lower cpWER (prob_based) should rank first.
-    prob_idx = md.find("merge=prob_based")
-    hard_idx = md.find("merge=hard_boundary")
-    assert prob_idx >= 0 and hard_idx >= 0
-    assert prob_idx < hard_idx
+    # The lower cpWER (low_lat) should rank first.
+    low_idx = md.find("sortformer=low_lat")
+    high_idx = md.find("sortformer=very_high_lat")
+    assert low_idx >= 0 and high_idx >= 0
+    assert low_idx < high_idx
 
 
 def test_generate_leaderboard_uses_highest_tier_present(tmp_path):
-    """When the user skipped Tier 3, the leaderboard should still be meaningful
-    by aggregating the highest tier that DID run (tier 2 here)."""
+    """When the user only ran Tier 1, the leaderboard should still be meaningful
+    by aggregating the highest tier that DID run (tier 1 here)."""
     csv_path = tmp_path / "runs.csv"
     csv_path.write_text(
         "\n".join([
@@ -68,7 +67,7 @@ def test_generate_leaderboard_uses_highest_tier_present(tmp_path):
     )
     out = runner.generate_leaderboard(results_dir=tmp_path)
     md = out.read_text()
-    # Uses tier-2 rows (no tier-3 present)
+    # Uses tier-2 rows (highest tier present)
     assert "# Benchmark leaderboard (tier 2, median)" in md
     assert "## AMI" in md
     # The leaderboard contains exactly one ranked row (tier-2 only).
