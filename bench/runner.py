@@ -23,7 +23,7 @@ CACHED_STAGE_S = -1.0  # CSV sentinel: stage hit the cache, no measurement taken
 
 CSV_COLUMNS = [
     "tier", "dataset", "clip_id", "config_id", "config_fingerprint",
-    "no_fallback", "suppress_nst", "streaming_preset", "align", "merge_strategy",
+    "no_fallback", "suppress_nst", "streaming_preset", "align",
     "cpwer", "wer", "der", "speaker_assignment_error_rate",
     "runtime_s", "whisper_s", "sortformer_s", "align_s", "merge_s",
     "git_sha", "started_at", "host",
@@ -72,8 +72,6 @@ def _run_cached(clip: BenchClip, cfg: PipelineConfig,
 
     transcribe_cfg = replace(cfg.transcribe, language=clip.language)
     diarize_cfg = replace(cfg.diarize, num_speakers=clip.num_speakers)
-    if cfg.merge.strategy == "prob_based":
-        diarize_cfg = replace(diarize_cfg, emit_probs=True)
 
     words = cache.load_whisper(clip.audio_path, transcribe_cfg, cache_dir=cache_dir)
     if words is None:
@@ -82,16 +80,12 @@ def _run_cached(clip: BenchClip, cfg: PipelineConfig,
         timings["whisper_s"] = time.time() - t
         cache.save_whisper(clip.audio_path, transcribe_cfg, words, cache_dir=cache_dir)
 
-    cached = cache.load_sortformer(clip.audio_path, diarize_cfg, cache_dir=cache_dir)
-    if cached is None:
+    turns = cache.load_sortformer(clip.audio_path, diarize_cfg, cache_dir=cache_dir)
+    if turns is None:
         t = time.time()
-        turns, probs = diarize.run(clip.audio_path, config=diarize_cfg)
+        turns = diarize.run(clip.audio_path, config=diarize_cfg)
         timings["sortformer_s"] = time.time() - t
-        cache.save_sortformer(
-            clip.audio_path, diarize_cfg, turns, probs=probs, cache_dir=cache_dir
-        )
-    else:
-        turns, probs = cached
+        cache.save_sortformer(clip.audio_path, diarize_cfg, turns, cache_dir=cache_dir)
 
     if cfg.align.enabled and align_mod.is_available() and words:
         whisper_h = cache.whisper_key(clip.audio_path, transcribe_cfg)
@@ -108,9 +102,7 @@ def _run_cached(clip: BenchClip, cfg: PipelineConfig,
         words = aligned
 
     t = time.time()
-    word_speakers = merge.assign_speakers(
-        words, turns, strategy=cfg.merge.strategy, probs=probs
-    )
+    word_speakers = merge.assign_speakers(words, turns)
     utterances = merge.collapse(word_speakers)
     timings["merge_s"] = time.time() - t
 
@@ -177,7 +169,6 @@ def run_one_tier(
                         "suppress_nst": cfg.transcribe.suppress_nst,
                         "streaming_preset": cfg.diarize.streaming_preset,
                         "align": cfg.align.enabled,
-                        "merge_strategy": cfg.merge.strategy,
                         "cpwer": m.cpwer, "wer": m.wer, "der": m.der,
                         "speaker_assignment_error_rate": m.speaker_assignment_error_rate,
                         "runtime_s": time.time() - started,
@@ -193,7 +184,7 @@ def run_one_tier(
 def generate_leaderboard(*, results_dir: Path) -> Path:
     """Rebuild leaderboard.md from runs.csv. Median cpWER per (dataset x config)
     using the highest tier present in runs.csv — so the file is meaningful even
-    when only Tier 1 / Tier 2 have run."""
+    when only Tier 1 has run."""
     csv_path = results_dir / "runs.csv"
     out_path = results_dir / "leaderboard.md"
     if not csv_path.exists():
@@ -218,7 +209,7 @@ def generate_leaderboard(*, results_dir: Path) -> Path:
             if r["dataset"] != dataset:
                 continue
             key = (r["no_fallback"], r["suppress_nst"], r["streaming_preset"],
-                   r["align"], r["merge_strategy"])
+                   r["align"])
             agg.setdefault(key, []).append((
                 float(r["cpwer"]), float(r["wer"]), float(r["der"]),
                 float(r["speaker_assignment_error_rate"]), float(r["runtime_s"]),
@@ -233,9 +224,9 @@ def generate_leaderboard(*, results_dir: Path) -> Path:
             key=lambda x: x[1],
         )
         for rank, (k, c, w, d, s, rt) in enumerate(ranked, 1):
-            nf, sn, sp, al, mg = k
+            nf, sn, sp, al = k
             label = (
-                f"merge={mg}, align={al}, sortformer={sp}, "
+                f"align={al}, sortformer={sp}, "
                 f"no_fallback={nf}, suppress_nst={sn}"
             )
             row = (

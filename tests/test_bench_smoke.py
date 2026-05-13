@@ -44,7 +44,7 @@ def test_smoke_full_bench_roundtrip(tmp_path):
     )
     dataset: Dataset = _SingleClipDataset(clip)
 
-    # Tier-1 32-config grid is too heavy for a smoke test — pick 2.
+    # Tier-1 16-config grid is too heavy for a smoke test — pick 2.
     configs = tiers.tier_1_configs()[:2]
     runner.run_one_tier(
         tier=1,

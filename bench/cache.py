@@ -2,7 +2,7 @@
 
 Each cached artefact's key incorporates a sha1 of the input audio plus only
 the config fields that affect that stage's output. Serialisation: JSON for
-structured data, NumPy `.npy` for tensors — no opaque binary formats.
+structured data — no opaque binary formats.
 """
 import functools
 import hashlib
@@ -11,8 +11,6 @@ import logging
 import os
 from dataclasses import asdict
 from pathlib import Path
-
-import numpy as np
 
 from transcript.models import Turn, Word
 from transcript.pipeline_config import DiarizeConfig, TranscribeConfig
@@ -24,15 +22,6 @@ def _atomic_write_text(path: Path, content: str) -> None:
     """Write text atomically: write to <path>.tmp, then os.replace."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content)
-    os.replace(tmp, path)
-
-
-def _atomic_write_npy(path: Path, arr: np.ndarray) -> None:
-    """Save .npy atomically: write via an open file handle (so np.save doesn't
-    auto-append .npy to the .tmp path), then os.replace."""
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("wb") as f:
-        np.save(f, arr)
     os.replace(tmp, path)
 
 
@@ -71,7 +60,6 @@ def sortformer_key(audio_path: Path, cfg: DiarizeConfig) -> str:
     # yields the same pre-filter turns regardless of num_speakers.
     relevant = {
         "streaming_preset": cfg.streaming_preset,
-        "emit_probs": cfg.emit_probs,
     }
     return _hash(
         audio_sha1(audio_path),
@@ -129,7 +117,6 @@ def save_sortformer(
     cfg: DiarizeConfig,
     turns: list[Turn],
     *,
-    probs: np.ndarray | None,
     cache_dir: Path,
 ) -> None:
     base = _sortformer_dir(audio_path, cfg, cache_dir)
@@ -140,8 +127,6 @@ def save_sortformer(
             [{"speaker": t.speaker, "start": t.start, "end": t.end} for t in turns]
         ),
     )
-    if probs is not None:
-        _atomic_write_npy(base / "probs.npy", probs)
 
 
 def load_sortformer(
@@ -149,16 +134,13 @@ def load_sortformer(
     cfg: DiarizeConfig,
     *,
     cache_dir: Path,
-) -> tuple[list[Turn], np.ndarray | None] | None:
+) -> list[Turn] | None:
     base = _sortformer_dir(audio_path, cfg, cache_dir)
     turns_file = base / "turns.json"
     if not turns_file.exists():
         return None
     try:
-        turns = [Turn(**r) for r in json.loads(turns_file.read_text())]
-        probs_file = base / "probs.npy"
-        probs = np.load(probs_file) if probs_file.exists() else None
-        return turns, probs
+        return [Turn(**r) for r in json.loads(turns_file.read_text())]
     except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
         _log.warning("sortformer cache %s is corrupt (%s); re-running stage", base, e)
         return None
