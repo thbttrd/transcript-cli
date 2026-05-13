@@ -181,162 +181,32 @@ First three things to check:
 3. **no_fallback=False** — occasionally rescuing hard segments could lower
    WER without inflating cpWER. Worth checking before defaulting it.
 
-## 4-ter. Revert `merge.strategy = "prob_based"` — NEXT
+## 4-ter. Revert `merge.strategy = "prob_based"` — DONE
 
-Tier 1+2 showed `prob_based` is consistently 33–67 pp **worse** than
+Tier 1+2 showed `prob_based` was consistently 33–67 pp **worse** than
 `hard_boundary` on cpWER. The strategy never earned its keep; the
-[T×4] probability tensor it depends on adds latency, memory, and code
-surface for negative ROI. The pre-bench default (`hard_boundary`) is
-also the production default, so this revert is **behaviour-preserving**
-on the production CLI path — only the bench harness changes shape.
+[T×4] probability tensor it depended on added latency, memory, and code
+surface for negative ROI. Production-default (`hard_boundary`) was
+also the pre-bench default, so the revert was behaviour-preserving on
+the production CLI path.
 
-### Scope summary
-
-Remove three threaded-together concepts:
-1. `MergeConfig.strategy` (and the public ``Literal`` type).
-2. `DiarizeConfig.emit_probs` + the [T×4] tensor branch of `diarize.run`.
-3. The bench harness's `merge_strategy` axis + CSV column.
-
-The PR-shaped diff is ~150 lines of deletions, 0 net additions.
-
-### Source-code deletions (production path)
-
-- [ ] **`src/transcript/merge.py`**
-  - Delete `_best_speaker_prob_based` (lines 38–51).
-  - Drop the `strategy` and `probs` kwargs from `assign_speakers`
-    (lines 54–70). New signature: `assign_speakers(words, turns) ->
-    list[tuple[Word, str]]`. Body becomes
-    `return [(w, _best_speaker_hard_boundary(w, turns)) for w in words]`.
-  - Remove `numpy` import (`merge.py:3`) — `_best_speaker_hard_boundary`
-    doesn't need it.
-  - Remove `Literal` import (`merge.py:1`) — no longer used.
-  - `assign` (line 105) keeps its current shape; it already calls
-    `assign_speakers(words, turns)` without kwargs.
-
-- [ ] **`src/transcript/pipeline_config.py`**
-  - Delete `DiarizeConfig.emit_probs` field (line 26).
-  - Delete `MergeConfig` dataclass entirely (lines 33–36) — it had only
-    the `strategy` field.
-  - Remove the `merge: MergeConfig` field from `PipelineConfig` (line
-    47).
-  - Remove the `merge` arg from `PipelineConfig.from_dict` (line 65).
-
-- [ ] **`src/transcript/diarize.py`**
-  - Delete the `if config.emit_probs:` branch in `run()` (lines 117–130).
-    Keep the unconditional `model.diarize(audio=..., batch_size=1)` path.
-  - Change `run()`'s return type from `tuple[list[Turn], np.ndarray |
-    None]` to `list[Turn]`. Remove `probs` from the return tuple.
-  - Drop the `numpy` import if no other site uses it.
-  - Remove the `DiarizeError` raised on shape drift — it only existed to
-    guard the prob branch.
-
-- [ ] **`src/transcript/pipeline.py`**
-  - Delete the `if config.merge.strategy == "prob_based": diarize_cfg =
-    replace(diarize_cfg, emit_probs=True)` block (lines 27–28).
-  - Drop `probs` from the unpacking of `diarize.run` (it now returns a
-    single value).
-  - Change the `merge.assign_speakers(words, turns, strategy=..., probs=
-    probs)` call (line 51) to `merge.assign_speakers(words, turns)`.
-
-### Bench harness deletions
-
-- [ ] **`bench/runner.py`**
-  - Drop the `merge_strategy` axis from `CSV_COLUMNS` (line 26). This is
-    a CSV schema break — any committed `runs.csv` becomes unparseable.
-    Decision: regenerate by re-running the bench; the schema cleanup is
-    worth more than the historical record.
-  - Delete the `if cfg.merge.strategy == "prob_based": ...` branch
-    (lines 75–76).
-  - Drop `probs` from the unpacking of `diarize.run` (lines 87–88, 94)
-    and from `merge.assign_speakers(..., probs=probs)` (line 112).
-  - Remove `merge_strategy` from the row dict written by `writer.writerow`
-    (line 180).
-  - In `generate_leaderboard`, drop `r["merge_strategy"]` from the
-    aggregation key (line 221) and from the label string (line 232).
-    The label simplifies to
-    `f"align={al}, sortformer={sp}, no_fallback={nf}, suppress_nst={sn}"`.
-
-- [ ] **`bench/tiers.py`**
-  - Drop `"merge_strategy": ["hard_boundary", "prob_based"]` from
-    `_AXES_BOOL` (line 26). Tier 1 grid shrinks from 32 to 16 configs.
-  - Drop the `merge_strategy` parameter from `_build_config` (line 109)
-    and the `MergeConfig(strategy=merge_strategy)` line (line 114).
-  - Drop the `merge_strategy` argument from `tier_3_configs`'s
-    finalist rebuild (lines 102–104). The function can simplify to
-    `return [_build_config() for _, _ in finalists]` — i.e. all
-    finalists become identical defaults. At that point `tier_3_configs`
-    is purely a no-op (Tier 3 just re-runs the defaults on more clips).
-    Consider whether Tier 3 still earns its keep without the
-    `prob_based`-vs-`hard_boundary` race; if not, also delete Tier 3
-    from `scripts/benchmark.py:_TIER_PRESETS` and the `--all` chain.
-
-- [ ] **`bench/cache.py`**
-  - Drop `"emit_probs": cfg.emit_probs` from the `sortformer_key`
-    relevant-dict (line 74). **Cache invalidation:** existing sortformer
-    cache files keyed on the old hash become orphans on disk — harmless
-    but worth a `rm -rf bench/cache/sortformer/` after the change to
-    avoid confusion.
-
-### Test deletions / updates
-
-- [ ] **Delete `tests/test_merge_prob.py`** entirely. All three tests
-  (`test_prob_based_assigns_argmax_speaker_over_word_frames`,
-  `test_prob_based_handles_word_outside_tensor_range`,
-  `test_prob_based_with_no_probs_falls_back_to_hard_boundary`) become
-  meaningless.
-
-- [ ] **`tests/test_pipeline_config.py`**
-  - Drop the `MergeConfig` import (line 10).
-  - Delete the `assert cfg.diarize.emit_probs is False` line (line 25).
-  - Delete `assert cfg.merge.strategy == "hard_boundary"` (line 27).
-  - Replace `test_fingerprint_changes_when_any_field_changes` (line 39)
-    with a different field mutation (e.g.
-    `DiarizeConfig(streaming_preset="low_lat")` or
-    `TranscribeConfig(no_fallback=False)`).
-  - Drop the `merge=MergeConfig(strategy="prob_based")` from
-    `test_from_dict_roundtrips_via_asdict` (line 52); pick another field
-    to mutate.
-
-- [ ] **`tests/test_diarize.py`**
-  - Delete `test_run_returns_probs_when_emit_probs_true` (around
-    line 120).
-  - Update any other test that unpacks the `diarize.run` return tuple
-    to expect a single `list[Turn]` return instead of `(turns, probs)`.
-
-- [ ] **`tests/test_bench_tiers.py`**
-  - Remove `merge_strategy` from the synthetic row fixtures.
-  - The assertion `strategies == {"hard_boundary", "prob_based"}` (line
-    38) becomes trivially true with one strategy. Either rewrite to
-    assert config count (Tier 1 = 16 configs after the axis drop) or
-    delete the test if its purpose was specifically the strategy axis.
-
-- [ ] **`tests/test_bench_runner.py`**
-  - Drop `"merge_strategy"` from the `defaults` dict in `_row` (line 19).
-  - Update `test_generate_leaderboard_ranks_configs_by_median_cpwer` —
-    the test currently mocks two rows that differ only in
-    `merge_strategy`. Replace with two rows that differ in another axis
-    (e.g. `streaming_preset`) so the ranking semantics test still has
-    teeth.
-
-### Verification
-
-- [ ] `uv run pytest -m "not integration" -q` — full suite green.
-- [ ] `uv run pytest tests/test_pipeline_integration.py` — make sure the
-  end-to-end mocked pipeline still produces correct utterances after
-  the API simplification.
-- [ ] Smoke the CLI on a real audio file:
-  `uv run transcript path/to/sample.m4a` — verify output is
-  byte-identical to a pre-revert run on the same file. Should be: the
-  default code path was always `hard_boundary`.
-
-### Out-of-scope (do NOT touch in this revert)
-
-- `bench/results/runs.csv` / `leaderboard.md` — these are the historical
-  evidence the revert is grounded in. Leave them as committed artefacts
-  (or wipe them locally if you regenerate).
-- The AMI splice silent-region issue — separate follow-up (see below).
-- The Tier 3 design rethink — separate decision; this revert just makes
-  Tier 3 redundant in its current form.
+Shipped:
+- Removed `MergeConfig` dataclass, `DiarizeConfig.emit_probs`, and the
+  prob-based code path from `merge.py`, `diarize.py`, and `pipeline.py`.
+  `diarize.run` now returns `list[Turn]` directly.
+- Dropped the `merge_strategy` axis from `bench/tiers.py` (Tier 1 grid
+  shrank from 32 to 16 configs) and the `merge_strategy` CSV column
+  from `bench/runner.py`. Existing `bench/results/runs.csv` is kept as
+  the historical evidence the revert is grounded in (the schema break
+  means re-running the bench requires regenerating it).
+- Deleted Tier 3 entirely. Without the `prob_based`-vs-`hard_boundary`
+  race, Tier 3 would have collapsed to "re-run defaults on more clips"
+  — and the verdict already showed defaults capture ~99.4% of
+  achievable gain.
+- Pruned `bench/cache.py` (emit_probs gone from sortformer_key; probs
+  npy artefact gone). Existing `bench/cache/sortformer/` entries are
+  orphans now — harmless but `rm -rf bench/cache/sortformer/` tidies.
+- Updated/removed all affected tests; full non-integration suite green.
 
 ---
 
