@@ -17,6 +17,8 @@ from transcript.pipeline_config import DiarizeConfig, TranscribeConfig
 
 _log = logging.getLogger(__name__)
 
+_SORTFORMER_SCHEMA = 2  # bump when the on-disk turns.json shape changes
+
 
 def _atomic_write_text(path: Path, content: str) -> None:
     """Write text atomically: write to <path>.tmp, then os.replace."""
@@ -123,9 +125,12 @@ def save_sortformer(
     base.mkdir(parents=True, exist_ok=True)
     _atomic_write_text(
         base / "turns.json",
-        json.dumps(
-            [{"speaker": t.speaker, "start": t.start, "end": t.end} for t in turns]
-        ),
+        json.dumps({
+            "schema": _SORTFORMER_SCHEMA,
+            "turns": [
+                {"speaker": t.speaker, "start": t.start, "end": t.end} for t in turns
+            ],
+        }),
     )
 
 
@@ -140,7 +145,17 @@ def load_sortformer(
     if not turns_file.exists():
         return None
     try:
-        return [Turn(**r) for r in json.loads(turns_file.read_text())]
+        payload = json.loads(turns_file.read_text())
+        # Old shape: bare list of turn dicts. Treat as schema-drift miss so a
+        # cache written under the pre-revert prob_based code is re-run.
+        if not isinstance(payload, dict) or payload.get("schema") != _SORTFORMER_SCHEMA:
+            _log.warning(
+                "sortformer cache %s has schema %r (expected %d); re-running stage",
+                base, payload.get("schema") if isinstance(payload, dict) else "<legacy-list>",
+                _SORTFORMER_SCHEMA,
+            )
+            return None
+        return [Turn(**r) for r in payload["turns"]]
     except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
         _log.warning("sortformer cache %s is corrupt (%s); re-running stage", base, e)
         return None
