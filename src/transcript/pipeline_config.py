@@ -23,17 +23,11 @@ class TranscribeConfig:
 class DiarizeConfig:
     streaming_preset: Literal["very_high_lat", "low_lat"] = "very_high_lat"
     num_speakers: int | None = None
-    emit_probs: bool = False
 
 
 @dataclass(frozen=True)
 class AlignConfig:
     enabled: bool = True
-
-
-@dataclass(frozen=True)
-class MergeConfig:
-    strategy: Literal["hard_boundary", "prob_based"] = "hard_boundary"
 
 
 @dataclass(frozen=True)
@@ -46,7 +40,6 @@ class PipelineConfig:
     transcribe: TranscribeConfig = field(default_factory=TranscribeConfig)
     diarize:    DiarizeConfig    = field(default_factory=DiarizeConfig)
     align:      AlignConfig      = field(default_factory=AlignConfig)
-    merge:      MergeConfig      = field(default_factory=MergeConfig)
     llm_fix:    LLMFixConfig     = field(default_factory=LLMFixConfig)
 
     def fingerprint(self) -> str:
@@ -59,6 +52,5 @@ class PipelineConfig:
             transcribe=TranscribeConfig(**d["transcribe"]),
             diarize=DiarizeConfig(**d["diarize"]),
             align=AlignConfig(**d["align"]),
-            merge=MergeConfig(**d["merge"]),
             llm_fix=LLMFixConfig(**d["llm_fix"]),
         )

@@ -1,10 +1,9 @@
 from transcript import pipeline
-from transcript.models import Meta, Turn, Word
+from transcript.models import Turn, Word
 from transcript.pipeline_config import (
     AlignConfig,
     DiarizeConfig,
     LLMFixConfig,
-    MergeConfig,
     PipelineConfig,
     TranscribeConfig,
 )
@@ -23,7 +22,7 @@ def _setup_mocks(mocker, tmp_path):
     )
     mocker.patch(
         "transcript.pipeline.diarize.run",
-        return_value=([Turn("Speaker 1", 0.0, 1.5), Turn("Speaker 2", 1.5, 3.0)], None),
+        return_value=[Turn("Speaker 1", 0.0, 1.5), Turn("Speaker 2", 1.5, 3.0)],
     )
     mocker.patch("transcript.pipeline.llm_fix.is_available", return_value=False)
     mocker.patch("transcript.pipeline.align.is_available", return_value=False)
@@ -57,7 +56,7 @@ def test_pipeline_passes_num_speakers_to_diarize(tmp_path, mocker):
     wav = _setup_mocks(mocker, tmp_path)
     diarize_spy = mocker.patch(
         "transcript.pipeline.diarize.run",
-        return_value=([Turn("Speaker 1", 0.0, 1.0)], None),
+        return_value=[Turn("Speaker 1", 0.0, 1.0)],
     )
     cfg = PipelineConfig(diarize=DiarizeConfig(num_speakers=2))
     pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
@@ -121,26 +120,3 @@ def test_pipeline_cleans_up_temp_wav(tmp_path, mocker):
     assert prepared.exists()
     pipeline.run(audio_path=wav, config=PipelineConfig(), with_diarization=True)
     assert not prepared.exists()
-
-
-def test_pipeline_threads_emit_probs_when_merge_is_prob_based(tmp_path, mocker):
-    wav = _setup_mocks(mocker, tmp_path)
-    diarize_spy = mocker.patch(
-        "transcript.pipeline.diarize.run",
-        return_value=([Turn("Speaker 1", 0.0, 1.0)], None),
-    )
-    cfg = PipelineConfig(merge=MergeConfig(strategy="prob_based"))
-    pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
-    diarize_cfg = diarize_spy.call_args.kwargs["config"]
-    assert diarize_cfg.emit_probs is True
-
-
-def test_pipeline_does_not_force_emit_probs_when_merge_is_hard_boundary(tmp_path, mocker):
-    wav = _setup_mocks(mocker, tmp_path)
-    diarize_spy = mocker.patch(
-        "transcript.pipeline.diarize.run",
-        return_value=([Turn("Speaker 1", 0.0, 1.0)], None),
-    )
-    pipeline.run(audio_path=wav, config=PipelineConfig(), with_diarization=True)
-    diarize_cfg = diarize_spy.call_args.kwargs["config"]
-    assert diarize_cfg.emit_probs is False

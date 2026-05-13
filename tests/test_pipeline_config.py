@@ -7,7 +7,6 @@ from transcript.pipeline_config import (
     AlignConfig,
     DiarizeConfig,
     LLMFixConfig,
-    MergeConfig,
     PipelineConfig,
     TranscribeConfig,
 )
@@ -22,9 +21,7 @@ def test_defaults_match_current_pipeline_behavior():
     assert cfg.transcribe.suppress_nst is True
     assert cfg.diarize.streaming_preset == "very_high_lat"
     assert cfg.diarize.num_speakers is None
-    assert cfg.diarize.emit_probs is False
     assert cfg.align.enabled is True
-    assert cfg.merge.strategy == "hard_boundary"
     assert cfg.llm_fix.enabled is False
 
 
@@ -36,7 +33,9 @@ def test_fingerprint_is_stable_for_same_config():
 
 def test_fingerprint_changes_when_any_field_changes():
     base = PipelineConfig().fingerprint()
-    changed = PipelineConfig(merge=MergeConfig(strategy="prob_based")).fingerprint()
+    changed = PipelineConfig(
+        diarize=DiarizeConfig(streaming_preset="low_lat")
+    ).fingerprint()
     assert base != changed
 
 
@@ -49,7 +48,8 @@ def test_fingerprint_is_short_hex_string():
 def test_from_dict_roundtrips_via_asdict():
     cfg = PipelineConfig(
         transcribe=TranscribeConfig(no_fallback=False, suppress_nst=False),
-        merge=MergeConfig(strategy="prob_based"),
+        align=AlignConfig(enabled=False),
+        llm_fix=LLMFixConfig(enabled=True),
     )
     reconstructed = PipelineConfig.from_dict(asdict(cfg))
     assert reconstructed == cfg
