@@ -15,7 +15,7 @@ class TranscribeConfig:
     model: str = "large-v3"
     language: str | None = None
     temperature: float = 0.0
-    no_fallback: bool = True
+    no_fallback: bool = False
     suppress_nst: bool = True
 
 

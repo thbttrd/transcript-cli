@@ -78,7 +78,7 @@ def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
     assert "-l" in cmd and "fr" in cmd
     assert "-ml" in cmd and "1" in cmd
     assert "--split-on-word" in cmd
-    assert "--no-fallback" in cmd
+    assert "--no-fallback" not in cmd  # off by default per bench verdict
     assert "--suppress-nst" in cmd
     assert "-ojf" in cmd or "--output-json-full" in cmd
 
@@ -141,10 +141,10 @@ def test_run_respects_no_fallback_flag(tmp_path, mocker):
         return mocker.Mock(returncode=0)
 
     mock_run = mocker.patch("transcript.transcribe.subprocess.run", side_effect=fake_run)
-    cfg = TranscribeConfig(language="fr", no_fallback=False)
+    cfg = TranscribeConfig(language="fr", no_fallback=True)
     transcribe.run(wav, config=cfg)
     cmd = mock_run.call_args[0][0]
-    assert "--no-fallback" not in cmd
+    assert "--no-fallback" in cmd
 
 
 def test_run_respects_suppress_nst_flag(tmp_path, mocker):
