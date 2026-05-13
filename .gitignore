@@ -31,3 +31,4 @@ htmlcov/
 bench/cache/
 bench/results/transcripts/
 bench/results/diffs/
+bench/results-smoke/
