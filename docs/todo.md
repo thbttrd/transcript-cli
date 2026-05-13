@@ -31,7 +31,79 @@ auto-summarised in `bench/results/leaderboard.md`. Per-row hypothesis and
 diff artefacts are persisted under `bench/results/{transcripts,diffs}/` for
 post-hoc failure-mode analysis.
 
-## 4. Run the benchmark and pick a winning config — NEXT
+## 4. Run the benchmark and pick a winning config — DONE
+
+Tier 1 (32 configs × 3 clips × 2 datasets = 192 rows) and Tier 2 (8 configs ×
+10 clips × 2 datasets = 160 rows) ran on 2026-05-13 against AMI ihm-mixed and
+SUMM-RE dev. Tier 3 was deliberately skipped: the winner is unambiguous and
+running 50 clips × full-duration AMI would only amplify the whisper
+hallucination noise documented under "Follow-ups" below.
+
+### Verdict — the default config was already #3 of 32
+
+Tier 1 ranked the 32 configs by median cpWER. The pre-bench defaults landed
+at rank #3 with median cpWER 69.08%, only **0.39 percentage points** behind
+the rank-#1 config (cpWER 68.69%). Default captures ~99.4% of the achievable
+gain on this knob space; further tuning of the 5 deterministic axes is not
+worth the engineering cost.
+
+| Axis | Default | Best in Tier 1 | Δ | Notes |
+|---|---|---|---|---|
+| `transcribe.no_fallback` | `True` | `False` | 0.39 pp | The only axis where the best differs from default; within noise across clips. |
+| `transcribe.suppress_nst` | `True` | `True` | 0 | Default already optimal. |
+| `diarize.streaming_preset` | `very_high_lat` | `very_high_lat` | 0 | `low_lat` is 0.3–0.5 pp worse on hard_boundary. Default already optimal. |
+| `align.enabled` | `True` | `True` | 0 | `False` is within 1 pp; align contributes marginal value at this clip length. |
+| `merge.strategy` | `hard_boundary` | `hard_boundary` | 0 | See below. |
+
+### TODO #1 (`prob_based` merge) — REVERT
+
+`prob_based` was introduced in TODO #1 to attack the "right word, wrong
+speaker" failure mode. Tier 2 medians (160 rows):
+
+| Dataset | `hard_boundary` median cpWER | `prob_based` median cpWER | Δ |
+|---|---|---|---|
+| AMI ihm-mixed | 174.7–175.5% | 232.8% | **+57 pp worse** |
+| SUMM-RE dev | 44.4–46.3% | 112.8% | **+67 pp worse** |
+| Combined | 89.1–90.2% | 123.2% | **+33 pp worse** |
+
+`prob_based` did not earn its keep — the per-frame probability averaging adds
+speaker confusion rather than removing it. Recommend deleting the
+`prob_based` code path entirely:
+- `src/transcript/merge.py:_best_speaker_prob_based` + the `strategy` knob
+- `src/transcript/diarize.py:DiarizeConfig.emit_probs` + the [T×4] tensor
+  return path from Sortformer
+- `src/transcript/pipeline_config.py:MergeConfig.strategy` (keep as
+  `hard_boundary`-only or drop the dataclass entirely)
+- The `prob_based` axis in `bench/tiers.py:_AXES_BOOL`
+
+### Follow-up: whisper hallucination on long AMI clips
+
+AMI Tier 2 (900s clips) revealed catastrophic whisper hallucination on
+specific meetings (TS3003a 747% WER, TS3003c 790%, ES2004c 519%). Root cause
+diagnosed: the per-utterance AMI ihm splice writes **hard zeros** in regions
+where no speaker has an utterance row, which triggers whisper-large-v3's
+known hallucination loop on artificial silence + `condition_on_previous_text`.
+SUMM-RE (ffmpeg amix of full per-speaker tracks) does **not** show this
+because each track carries continuous room tone, so silent regions have a
+natural noise floor.
+
+Mitigations (not blocking the verdict above — the rankings hold regardless):
+- Inject low-level pink/white noise at ≈ −50 dB into the silent regions of
+  `_build_meeting_wav`.
+- Set whisper `condition_on_previous_text=False` in `transcribe.py` (the
+  loop-amplifying setting).
+- Or both. Track under a new TODO when this becomes a real bottleneck.
+
+### Artefacts on disk
+
+- `bench/results/runs.csv` — 352 rows total (192 Tier 1 + 160 Tier 2).
+- `bench/results/leaderboard.md` — Tier 2 leaderboard per dataset.
+- `bench/results/transcripts/tier-{1,2}/...` — per-(clip × config) hypothesis
+  + reference utterances. Evidence for the follow-up failure-mode analysis.
+
+---
+
+## 4-bis. (historical) Original Tier-3 instructions
 
 The harness is built but has never been run against real data. This is the
 next concrete workstream.

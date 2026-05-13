@@ -35,7 +35,7 @@ def test_generate_leaderboard_writes_no_runs_yet_on_empty_dir(tmp_path):
     assert "_No runs yet._" in out.read_text()
 
 
-def test_generate_leaderboard_ranks_tier3_configs_by_median_cpwer(tmp_path):
+def test_generate_leaderboard_ranks_configs_by_median_cpwer(tmp_path):
     csv_path = tmp_path / "runs.csv"
     csv_path.write_text(
         "\n".join([
@@ -46,8 +46,8 @@ def test_generate_leaderboard_ranks_tier3_configs_by_median_cpwer(tmp_path):
     )
     out = runner.generate_leaderboard(results_dir=tmp_path)
     md = out.read_text()
-    assert "# Benchmark leaderboard" in md
-    assert "## AMI (tier 3, median)" in md
+    assert "# Benchmark leaderboard (tier 3, median)" in md
+    assert "## AMI" in md
     # The lower cpWER (prob_based) should rank first.
     prob_idx = md.find("merge=prob_based")
     hard_idx = md.find("merge=hard_boundary")
@@ -55,17 +55,26 @@ def test_generate_leaderboard_ranks_tier3_configs_by_median_cpwer(tmp_path):
     assert prob_idx < hard_idx
 
 
-def test_generate_leaderboard_skips_non_tier3_rows(tmp_path):
+def test_generate_leaderboard_uses_highest_tier_present(tmp_path):
+    """When the user skipped Tier 3, the leaderboard should still be meaningful
+    by aggregating the highest tier that DID run (tier 2 here)."""
     csv_path = tmp_path / "runs.csv"
     csv_path.write_text(
         "\n".join([
             CSV_HEADER,
             _row(tier="1", cpwer="0.05"),
-            _row(tier="2", cpwer="0.05"),
+            _row(tier="2", cpwer="0.10"),
         ]) + "\n"
     )
     out = runner.generate_leaderboard(results_dir=tmp_path)
     md = out.read_text()
-    # Header still there, but no per-dataset section.
-    assert "# Benchmark leaderboard" in md
-    assert "## AMI" not in md
+    # Uses tier-2 rows (no tier-3 present)
+    assert "# Benchmark leaderboard (tier 2, median)" in md
+    assert "## AMI" in md
+    # The leaderboard contains exactly one ranked row (tier-2 only).
+    body_lines = [line for line in md.splitlines() if line.startswith("| 1 ")]
+    assert len(body_lines) == 1
+    # That row's cpWER cell is the tier-2 value (0.10 → "10.0"), not the
+    # tier-1 value (0.05 → "5.0"). The cpWER column is the 3rd cell.
+    cpwer_cell = body_lines[0].split("|")[3].strip()
+    assert cpwer_cell == "10.0"

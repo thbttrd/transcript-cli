@@ -191,7 +191,9 @@ def run_one_tier(
 
 
 def generate_leaderboard(*, results_dir: Path) -> Path:
-    """Rebuild leaderboard.md from runs.csv. Median cpWER per (dataset x config x tier=3)."""
+    """Rebuild leaderboard.md from runs.csv. Median cpWER per (dataset x config)
+    using the highest tier present in runs.csv — so the file is meaningful even
+    when only Tier 1 / Tier 2 have run."""
     csv_path = results_dir / "runs.csv"
     out_path = results_dir / "leaderboard.md"
     if not csv_path.exists():
@@ -199,15 +201,20 @@ def generate_leaderboard(*, results_dir: Path) -> Path:
         return out_path
 
     rows = list(csv.DictReader(csv_path.open()))
-    tier3 = [r for r in rows if r["tier"] == "3"]
+    if not rows:
+        out_path.write_text("# Benchmark leaderboard\n\n_No runs yet._\n")
+        return out_path
 
-    lines = ["# Benchmark leaderboard\n"]
-    for dataset in sorted({r["dataset"] for r in tier3}):
-        lines.append(f"\n## {dataset} (tier 3, median)\n")
+    top_tier = max(int(r["tier"]) for r in rows)
+    tier_rows = [r for r in rows if r["tier"] == str(top_tier)]
+
+    lines = [f"# Benchmark leaderboard (tier {top_tier}, median)\n"]
+    for dataset in sorted({r["dataset"] for r in tier_rows}):
+        lines.append(f"\n## {dataset}\n")
         lines.append("| Rank | Config | cpWER | WER | DER | Speaker-err | Runtime |")
         lines.append("|------|--------|-------|-----|-----|-------------|---------|")
         agg: dict[tuple, list[tuple[float, ...]]] = {}
-        for r in tier3:
+        for r in tier_rows:
             if r["dataset"] != dataset:
                 continue
             key = (r["no_fallback"], r["suppress_nst"], r["streaming_preset"],
