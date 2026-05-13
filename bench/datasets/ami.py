@@ -1,14 +1,21 @@
-"""AMI sdm corpus loader.
+"""AMI ihm corpus loader (close-talk headset mix).
+
+AMI ships two HF configs: ``sdm`` (single distant mic — adversarial far-field)
+and ``ihm`` (per-speaker headsets — close-talk). We use ``ihm`` and mix the
+headset rows into a single 16 kHz mono WAV that simulates a typical "phone in
+the middle of the table" meeting recording. Each row in the HF dataset is one
+speaker's headset audio for one utterance; mixing across speakers (SUM) gives
+the natural multi-speaker signal at each timestamp, peak-normalised to 0.95
+to avoid PCM-16 clipping.
 
 Reference RTTMs come from BUTSpeechFIT/AMI-diarization-setup, vendored under
-bench/datasets/ami_rttm/. AMI audio is pulled from `edinburghcstr/ami` HF
-dataset (sdm config — single distant mic). The HF dataset ships per-utterance
-rows, so the loader splices each meeting's utterances into a single 16 kHz
-mono WAV cached under bench/cache/audio/ami/.
+bench/datasets/ami_rttm/. If the vendored RTTM directory is empty on first
+run, the loader git-clones the BUT repo into bench/cache/ami_rttm/ and
+descends into the nested ``only_words/rttms/test/`` directory.
 
-If the vendored RTTM directory is empty on first run, the loader git-clones
-the BUT repo into bench/cache/ami_rttm/ and descends into the nested
-`only_words/rttms/test/` directory.
+Spliced meeting WAVs cache under bench/cache/audio/ami/ keyed by their
+duration cap (e.g. ``EN2002a_300s.wav``) so different tiers never clobber
+each other's clip artefacts.
 """
 import logging
 import random
@@ -20,9 +27,10 @@ from bench.datasets.base import BenchClip, stm_line
 _log = logging.getLogger(__name__)
 
 _HF_DATASET = "edinburghcstr/ami"
-_HF_CONFIG  = "sdm"  # single distant mic
+_HF_CONFIG  = "ihm"  # individual headset mics — close-talk, mixable
 _HF_SPLIT   = "test"
-_HF_SR      = 16000  # AMI sdm canonical rate
+_HF_SR      = 16000  # AMI ihm canonical rate
+_PEAK_TARGET = 0.95  # post-mix normalisation ceiling
 _BUT_REPO   = "https://github.com/BUTSpeechFIT/AMI-diarization-setup.git"
 
 
@@ -35,57 +43,69 @@ def _load_dataset(*args, **kwargs):
 
 def _build_meeting_wav(meeting_id: str, out_path: Path,
                        max_duration_s: float | None = None) -> None:
-    """Splice all per-utterance rows for ``meeting_id`` from the HF AMI sdm
+    """Splice all per-utterance rows for ``meeting_id`` from the HF AMI ihm
     dataset into one 16 kHz mono WAV at ``out_path``.
 
-    Utterances are placed at the sample offset implied by their ``begin_time``.
-    Overlap policy: first-writer-wins (earlier ``begin_time``). AMI sdm rows
-    in overlap regions are slices of the same source mic, so summing would
-    double the amplitude; first-writer-wins preserves the original level.
+    Each row is one speaker's headset audio for one utterance. Summing rows
+    at their ``begin_time`` offsets mixes overlapping speakers naturally and
+    leaves non-overlap regions at the original headset amplitude. After all
+    rows are written the buffer is peak-normalised to ``_PEAK_TARGET`` so
+    PCM-16 quantisation never clips.
 
-    If ``max_duration_s`` is set, the buffer is hard-clipped to that length;
-    utterances that start after the cap are skipped.
+    Memory: single-pass streaming. The decoded audio array for each row is
+    summed into ``buf`` and dropped on the next iteration — peak RAM is
+    one ``buf`` (~115 MB for a 30-min meeting at 16 kHz mono float32) plus
+    one row's decoded audio (≤ a few MB).
+
+    If ``max_duration_s`` is set, rows whose ``begin_time`` is past the cap
+    are skipped; the buffer is truncated to that length before writing.
     """
     import numpy as np
     import soundfile as sf
 
+    initial_seconds = max_duration_s if max_duration_s is not None else 1800.0
+    buf = np.zeros(int(initial_seconds * _HF_SR) + _HF_SR, dtype=np.float32)
+    actual_max_end = 0.0
+    matched = 0
+
     ds = _load_dataset(_HF_DATASET, _HF_CONFIG, split=_HF_SPLIT, streaming=True)
-    rows = [r for r in ds if r["meeting_id"] == meeting_id]
-    if not rows:
-        raise RuntimeError(f"no AMI rows found for meeting {meeting_id}")
-    if max_duration_s is not None:
-        rows = [r for r in rows if float(r["begin_time"]) < max_duration_s]
-    rows.sort(key=lambda r: float(r["begin_time"]))
-
-    max_end = (
-        max_duration_s if max_duration_s is not None
-        else max(float(r["end_time"]) for r in rows)
-    )
-    buf = np.zeros(int(max_end * _HF_SR) + _HF_SR, dtype=np.float32)
-
-    for row in rows:
+    for row in ds:
+        if row["meeting_id"] != meeting_id:
+            continue
+        begin = float(row["begin_time"])
+        if max_duration_s is not None and begin >= max_duration_s:
+            continue
         src_sr = int(row["audio"]["sampling_rate"])
         if src_sr != _HF_SR:
             raise RuntimeError(
                 f"unexpected sample rate {src_sr} for meeting {meeting_id} "
-                f"(expected {_HF_SR}). AMI sdm rows should be 16 kHz."
+                f"(expected {_HF_SR}). AMI ihm rows should be 16 kHz."
             )
         arr = np.asarray(row["audio"]["array"], dtype=np.float32)
-        start = int(float(row["begin_time"]) * _HF_SR)
+        start = int(begin * _HF_SR)
         end = start + len(arr)
         if end > len(buf):
             new_buf = np.zeros(end + _HF_SR, dtype=np.float32)
             new_buf[:len(buf)] = buf
             buf = new_buf
-        mask = buf[start:end] == 0.0
-        buf[start:end] = np.where(mask, arr, buf[start:end])
+        buf[start:end] += arr
+        end_t = float(row["end_time"])
+        if end_t > actual_max_end:
+            actual_max_end = end_t
+        matched += 1
+
+    if matched == 0:
+        raise RuntimeError(f"no AMI rows found for meeting {meeting_id}")
+
+    peak = float(np.abs(buf).max())
+    if peak > _PEAK_TARGET:
+        buf *= _PEAK_TARGET / peak
 
     if max_duration_s is not None:
         buf = buf[:int(max_duration_s * _HF_SR)]
     else:
-        nonzero = np.nonzero(buf)[0]
-        if len(nonzero) > 0:
-            buf = buf[:nonzero[-1] + 1]
+        last = int(actual_max_end * _HF_SR)
+        buf = buf[:last + _HF_SR // 10]  # +0.1s tail slack
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(out_path, buf, _HF_SR, subtype="PCM_16")
