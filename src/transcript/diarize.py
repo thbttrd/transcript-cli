@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -5,6 +6,8 @@ from transcript.models import Turn
 
 if TYPE_CHECKING:
     from transcript.pipeline_config import DiarizeConfig
+
+_log = logging.getLogger(__name__)
 
 DIARIZER_LABEL = "NeMo Streaming Sortformer 4spk-v2.1"
 _NEMO_MODEL = "nvidia/diar_streaming_sortformer_4spk-v2.1"
@@ -118,4 +121,12 @@ def run(wav_path: Path, *, config: "DiarizeConfig") -> list[Turn]:
     if config.num_speakers is not None:
         keep = {f"Speaker {i + 1}" for i in range(config.num_speakers)}
         turns = [t for t in turns if t.speaker in keep]
+    if not turns:
+        # No segments means every downstream word will be labelled "Unknown".
+        # The model can legitimately return nothing for silence, but on a real
+        # recording this is almost always a degenerate failure worth surfacing.
+        _log.warning(
+            "Sortformer returned no turns for %s — every word will be labelled Unknown",
+            wav_path,
+        )
     return turns
