@@ -112,24 +112,5 @@ def test_run_filters_by_num_speakers(reset_model_cache, monkeypatch, mocker):
     _inject_fake_nemo(monkeypatch, fake_class)
 
     cfg = DiarizeConfig(num_speakers=2)
-    turns, probs = diarize.run(Path("/fake.wav"), config=cfg)
+    turns = diarize.run(Path("/fake.wav"), config=cfg)
     assert {t.speaker for t in turns} == {"Speaker 1", "Speaker 2"}
-    assert probs is None
-
-
-def test_run_returns_probs_when_emit_probs_true(reset_model_cache, monkeypatch, mocker):
-    import numpy as np
-
-    fake_tensor = np.zeros((10, 4), dtype=np.float32)
-    fake_model = mocker.MagicMock()
-    fake_model.diarize.return_value = ([["0.0 1.0 spk_a"]], fake_tensor)
-    fake_class = mocker.MagicMock()
-    fake_class.from_pretrained.return_value = fake_model
-    _inject_fake_nemo(monkeypatch, fake_class)
-
-    cfg = DiarizeConfig(emit_probs=True)
-    turns, probs = diarize.run(Path("/fake.wav"), config=cfg)
-    assert probs is not None
-    assert probs.shape == (10, 4)
-    _, kwargs = fake_model.diarize.call_args
-    assert kwargs.get("include_tensor_outputs") is True

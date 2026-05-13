@@ -1,5 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from pathlib import Path
 
 from transcript import align, audio, diarize, llm_fix, merge, transcribe
@@ -23,23 +22,18 @@ def run(
 
     is_temp_wav = wav != audio_path
     try:
-        diarize_cfg = config.diarize
-        if config.merge.strategy == "prob_based":
-            diarize_cfg = replace(diarize_cfg, emit_probs=True)
-
         if with_diarization:
             progress.step("transcribing + diarizing (parallel)")
             with ThreadPoolExecutor(max_workers=2) as ex:
                 tx_fut = ex.submit(transcribe.run, wav, config=config.transcribe)
-                diar_fut = ex.submit(diarize.run, wav, config=diarize_cfg)
+                diar_fut = ex.submit(diarize.run, wav, config=config.diarize)
                 words, detected_lang = tx_fut.result()
-                turns, probs = diar_fut.result()
+                turns = diar_fut.result()
             progress.done("transcribing + diarizing (parallel)")
         else:
             progress.step("transcribing")
             words, detected_lang = transcribe.run(wav, config=config.transcribe)
             turns = [Turn(speaker="Speaker 1", start=0.0, end=duration)]
-            probs = None
             progress.done("transcribing")
 
         if config.align.enabled and align.is_available() and words:
@@ -47,9 +41,7 @@ def run(
             words = align.run(wav, words, language=detected_lang)
             progress.done("aligning words")
 
-        word_speakers = merge.assign_speakers(
-            words, turns, strategy=config.merge.strategy, probs=probs
-        )
+        word_speakers = merge.assign_speakers(words, turns)
         if with_diarization and config.llm_fix.enabled and llm_fix.is_available():
             progress.step("LLM cleanup")
             word_speakers = llm_fix.apply(
