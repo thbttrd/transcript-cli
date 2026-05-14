@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from transcript import align, audio, diarize, llm_fix, merge, transcribe
+from transcript import align, audio, diarize, diarize_diarizen, llm_fix, merge, transcribe
 from transcript.models import Meta, Turn, Utterance
 from transcript.pipeline_config import PipelineConfig
 from transcript.progress import Progress
@@ -21,12 +21,13 @@ def run(
     progress.done("preparing audio")
 
     is_temp_wav = wav != audio_path
+    diar_module = diarize_diarizen if config.diarize.backend == "diarizen" else diarize
     try:
         if with_diarization:
             progress.step("transcribing + diarizing (parallel)")
             with ThreadPoolExecutor(max_workers=2) as ex:
                 tx_fut = ex.submit(transcribe.run, wav, config=config.transcribe)
-                diar_fut = ex.submit(diarize.run, wav, config=config.diarize)
+                diar_fut = ex.submit(diar_module.run, wav, config=config.diarize)
                 words, detected_lang = tx_fut.result()
                 turns = diar_fut.result()
             progress.done("transcribing + diarizing (parallel)")
@@ -62,7 +63,7 @@ def run(
             model=config.transcribe.model,
             language=detected_lang,
             speaker_count=speaker_count,
-            diarizer=diarize.DIARIZER_LABEL if with_diarization else None,
+            diarizer=diar_module.DIARIZER_LABEL if with_diarization else None,
         )
 
         return utterances, meta
