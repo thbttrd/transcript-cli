@@ -78,7 +78,7 @@ def test_run_invokes_whisper_with_correct_flags(tmp_path, mocker):
     assert "-l" in cmd and "fr" in cmd
     assert "-ml" in cmd and "1" in cmd
     assert "--split-on-word" in cmd
-    assert "--no-fallback" not in cmd  # off by default per bench verdict
+    assert "--no-fallback" in cmd  # on by default; flip via --whisper-fallback
     assert "--suppress-nst" in cmd
     assert "-ojf" in cmd or "--output-json-full" in cmd
 

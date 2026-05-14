@@ -6,6 +6,15 @@ from transcript.models import Meta, Turn, Utterance
 from transcript.pipeline_config import PipelineConfig
 from transcript.progress import Progress
 
+# Backend modules are looked up by DiarizeConfig.backend value. Each module must
+# expose a `run(wav_path, *, config: DiarizeConfig) -> list[Turn]` callable plus
+# a `DIARIZER_LABEL` string for the Meta record. Adding a new backend = adding
+# a key here + a sibling module that satisfies that contract.
+_DIARIZE_BACKENDS = {
+    "sortformer": diarize,
+    "diarizen": diarize_diarizen,
+}
+
 
 def run(
     *,
@@ -21,7 +30,7 @@ def run(
     progress.done("preparing audio")
 
     is_temp_wav = wav != audio_path
-    diar_module = diarize_diarizen if config.diarize.backend == "diarizen" else diarize
+    diar_module = _DIARIZE_BACKENDS[config.diarize.backend]
     try:
         if with_diarization:
             progress.step("transcribing + diarizing (parallel)")
