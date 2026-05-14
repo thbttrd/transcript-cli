@@ -1,3 +1,4 @@
+from transcript import merge
 from transcript.merge import assign
 from transcript.models import Turn, Utterance, Word
 
@@ -87,3 +88,101 @@ def test_text_is_stripped_and_concatenated_in_order():
     turns = [t("Speaker 1", 0.0, 0.5)]
     result = assign(words, turns)
     assert result[0].text == "hello  world"
+
+
+# --- smooth_speaker_islands ----------------------------------------------------
+
+
+def _wp(text: str, start: float, end: float, speaker: str) -> tuple[Word, str]:
+    """Compact (Word, speaker) tuple for smoothing tests."""
+    return (w(text, start, end), speaker)
+
+
+def test_smooth_islands_flips_single_word_island_between_same_speakers():
+    pairs = [
+        _wp("a", 0.0, 0.5, "A"),
+        _wp("b", 0.5, 1.0, "A"),
+        _wp("c", 1.0, 1.2, "B"),   # 1-word B island
+        _wp("d", 1.2, 1.7, "A"),
+        _wp("e", 1.7, 2.0, "A"),
+    ]
+    result = merge.smooth_speaker_islands(pairs)
+    assert [s for _, s in result] == ["A", "A", "A", "A", "A"]
+
+
+def test_smooth_islands_flips_two_word_island_when_max_allows():
+    pairs = [
+        _wp("a", 0.0, 0.5, "A"),
+        _wp("b", 0.5, 1.0, "B"),
+        _wp("c", 1.0, 1.5, "B"),   # 2-word B island
+        _wp("d", 1.5, 2.0, "A"),
+    ]
+    assert [s for _, s in merge.smooth_speaker_islands(pairs, max_island_words=2)] == [
+        "A", "A", "A", "A",
+    ]
+
+
+def test_smooth_islands_preserves_three_word_island_when_max_is_two():
+    pairs = [
+        _wp("a", 0.0, 0.5, "A"),
+        _wp("b", 0.5, 1.0, "B"),
+        _wp("c", 1.0, 1.5, "B"),
+        _wp("d", 1.5, 2.0, "B"),   # 3-word island — exceeds max
+        _wp("e", 2.0, 2.5, "A"),
+    ]
+    assert [s for _, s in merge.smooth_speaker_islands(pairs, max_island_words=2)] == [
+        "A", "B", "B", "B", "A",
+    ]
+
+
+def test_smooth_islands_preserves_when_surrounding_speakers_differ():
+    """A → B → C → A: B and C are 1-word runs but with different neighbours, so neither flips."""
+    pairs = [
+        _wp("a", 0.0, 0.5, "A"),
+        _wp("b", 0.5, 1.0, "B"),
+        _wp("c", 1.0, 1.5, "C"),
+        _wp("d", 1.5, 2.0, "A"),
+    ]
+    assert [s for _, s in merge.smooth_speaker_islands(pairs)] == ["A", "B", "C", "A"]
+
+
+def test_smooth_islands_noop_on_empty_or_short_input():
+    assert merge.smooth_speaker_islands([]) == []
+    one = [_wp("a", 0.0, 0.5, "A")]
+    assert merge.smooth_speaker_islands(one) == one
+    two = [_wp("a", 0.0, 0.5, "A"), _wp("b", 0.5, 1.0, "B")]
+    assert merge.smooth_speaker_islands(two) == two
+
+
+def test_smooth_islands_handles_alternating_micro_runs_in_single_pass():
+    """Two separate single-word B islands inside long A runs → both flip to A.
+
+    The intervening A run is 3 words (above max_island_words=2), so it survives
+    the pass intact — exactly what we want for "long A monologue with two stray
+    B words" patterns. If the intervening A were itself shorter than max, the
+    algorithm would (correctly) refuse to commit, since deciding the speaker
+    of a 1-word run surrounded by 1-word other-speaker neighbours is genuinely
+    ambiguous.
+    """
+    pairs = [
+        _wp("alpha", 0.0, 0.5, "A"),
+        _wp("beta", 0.5, 0.8, "A"),
+        _wp("gamma", 0.8, 1.0, "A"),
+        _wp("y", 1.0, 1.1, "B"),       # 1-word island
+        _wp("delta", 1.1, 1.5, "A"),
+        _wp("epsilon", 1.5, 1.8, "A"),
+        _wp("zeta", 1.8, 2.0, "A"),
+        _wp("y", 2.0, 2.1, "B"),       # 1-word island
+        _wp("eta", 2.1, 2.5, "A"),
+        _wp("theta", 2.5, 3.0, "A"),
+    ]
+    assert [s for _, s in merge.smooth_speaker_islands(pairs)] == ["A"] * 10
+
+
+def test_smooth_islands_does_not_flip_when_max_island_words_is_zero():
+    pairs = [
+        _wp("a", 0.0, 0.5, "A"),
+        _wp("b", 0.5, 1.0, "B"),
+        _wp("c", 1.0, 1.5, "A"),
+    ]
+    assert merge.smooth_speaker_islands(pairs, max_island_words=0) == pairs

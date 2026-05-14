@@ -32,6 +32,19 @@ class AlignConfig:
 
 
 @dataclass(frozen=True)
+class MergeConfig:
+    """Configures the word→speaker merge stage.
+
+    `smooth_islands` toggles a post-pass that flips short same-speaker islands
+    (size ≤ max_island_words) sandwiched between two runs of the same other
+    speaker. Fixes the "y a" / "tes" boundary artefact where a connective word
+    straddles a turn boundary and gets the wrong label.
+    """
+    smooth_islands: bool = True
+    max_island_words: int = 2
+
+
+@dataclass(frozen=True)
 class LLMFixConfig:
     enabled: bool = False
 
@@ -41,6 +54,7 @@ class PipelineConfig:
     transcribe: TranscribeConfig = field(default_factory=TranscribeConfig)
     diarize:    DiarizeConfig    = field(default_factory=DiarizeConfig)
     align:      AlignConfig      = field(default_factory=AlignConfig)
+    merge:      MergeConfig      = field(default_factory=MergeConfig)
     llm_fix:    LLMFixConfig     = field(default_factory=LLMFixConfig)
 
     def fingerprint(self) -> str:
@@ -53,5 +67,6 @@ class PipelineConfig:
             transcribe=TranscribeConfig(**d["transcribe"]),
             diarize=DiarizeConfig(**d["diarize"]),
             align=AlignConfig(**d["align"]),
+            merge=MergeConfig(**d["merge"]),
             llm_fix=LLMFixConfig(**d["llm_fix"]),
         )

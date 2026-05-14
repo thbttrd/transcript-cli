@@ -7,6 +7,7 @@ from transcript.pipeline_config import (
     AlignConfig,
     DiarizeConfig,
     LLMFixConfig,
+    MergeConfig,
     PipelineConfig,
     TranscribeConfig,
 )
@@ -23,6 +24,8 @@ def test_defaults_match_current_pipeline_behavior():
     assert cfg.diarize.num_speakers is None
     assert cfg.diarize.backend == "sortformer"
     assert cfg.align.enabled is True
+    assert cfg.merge.smooth_islands is True
+    assert cfg.merge.max_island_words == 2
     assert cfg.llm_fix.enabled is False
 
 
@@ -50,6 +53,7 @@ def test_from_dict_roundtrips_via_asdict():
     cfg = PipelineConfig(
         transcribe=TranscribeConfig(no_fallback=False, suppress_nst=False),
         align=AlignConfig(enabled=False),
+        merge=MergeConfig(smooth_islands=False, max_island_words=3),
         llm_fix=LLMFixConfig(enabled=True),
     )
     reconstructed = PipelineConfig.from_dict(asdict(cfg))

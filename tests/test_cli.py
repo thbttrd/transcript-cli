@@ -214,3 +214,19 @@ def test_main_whisper_fallback_unspecified_tracks_dataclass_default(tmp_path, mo
     cfg_value = spy.call_args.kwargs["config"].transcribe.no_fallback
     default_value = TranscribeConfig.__dataclass_fields__["no_fallback"].default
     assert cfg_value == default_value
+
+
+def test_main_smooth_merge_default_enabled(tmp_path, mocker):
+    f = tmp_path / "v.m4a"
+    f.write_bytes(b"")
+    spy = _stub_pipeline_run(mocker)
+    cli.main([str(f)])
+    assert spy.call_args.kwargs["config"].merge.smooth_islands is True
+
+
+def test_main_no_smooth_merge_flag_disables_smoothing(tmp_path, mocker):
+    f = tmp_path / "v.m4a"
+    f.write_bytes(b"")
+    spy = _stub_pipeline_run(mocker)
+    cli.main([str(f), "--no-smooth-merge"])
+    assert spy.call_args.kwargs["config"].merge.smooth_islands is False

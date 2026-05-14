@@ -70,6 +70,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--no-smooth-merge",
+        action="store_true",
+        help=(
+            "Skip post-merge single-word-island smoothing. On by default — flips "
+            "1-2 word same-speaker islands sandwiched between same-other-speaker "
+            "runs (fixes 'y a'-style boundary artefacts)."
+        ),
+    )
+    p.add_argument(
         "--whisper-fallback",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -108,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             AlignConfig,
             DiarizeConfig,
             LLMFixConfig,
+            MergeConfig,
             PipelineConfig,
             TranscribeConfig,
         )
@@ -119,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             transcribe=TranscribeConfig(**tx_kwargs),
             diarize=DiarizeConfig(num_speakers=args.speakers, backend=args.diarizer),
             align=AlignConfig(enabled=not args.no_align),
+            merge=MergeConfig(smooth_islands=not args.no_smooth_merge),
             llm_fix=LLMFixConfig(enabled=args.llm_fix),
         )
         utterances, meta = pipeline.run(
