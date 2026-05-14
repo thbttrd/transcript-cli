@@ -56,12 +56,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-align",
         action="store_true",
-        help="Skip forced word-alignment. On by default — ctc-forced-aligner + MMS-300m refines whisper.cpp word timestamps to sub-100 ms.",
+        help=(
+            "Skip forced word-alignment. On by default — ctc-forced-aligner + MMS-300m "
+            "refines whisper.cpp word timestamps to sub-100 ms."
+        ),
     )
     p.add_argument(
         "--llm-fix",
         action="store_true",
-        help="Opt in to local-LLM speaker-label cleanup via Ollama (gemma4:e4b). Off by default — alignment usually obsoletes it.",
+        help=(
+            "Opt in to local-LLM speaker-label cleanup via Ollama (gemma4:e4b). "
+            "Off by default — alignment usually obsoletes it."
+        ),
     )
     p.add_argument(
         "--whisper-fallback",

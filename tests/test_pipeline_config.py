@@ -17,10 +17,11 @@ def test_defaults_match_current_pipeline_behavior():
     assert cfg.transcribe.model == "large-v3"
     assert cfg.transcribe.language is None
     assert cfg.transcribe.temperature == 0.0
-    assert cfg.transcribe.no_fallback is False
+    assert cfg.transcribe.no_fallback is True
     assert cfg.transcribe.suppress_nst is True
     assert cfg.diarize.streaming_preset == "very_high_lat"
     assert cfg.diarize.num_speakers is None
+    assert cfg.diarize.backend == "sortformer"
     assert cfg.align.enabled is True
     assert cfg.llm_fix.enabled is False
 
