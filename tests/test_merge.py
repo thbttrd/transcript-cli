@@ -155,14 +155,9 @@ def test_smooth_islands_noop_on_empty_or_short_input():
 
 
 def test_smooth_islands_handles_alternating_micro_runs_in_single_pass():
-    """Two separate single-word B islands inside long A runs → both flip to A.
+    """Two single-word B islands inside long A runs → both flip to A.
 
-    The intervening A run is 3 words (above max_island_words=2), so it survives
-    the pass intact — exactly what we want for "long A monologue with two stray
-    B words" patterns. If the intervening A were itself shorter than max, the
-    algorithm would (correctly) refuse to commit, since deciding the speaker
-    of a 1-word run surrounded by 1-word other-speaker neighbours is genuinely
-    ambiguous.
+    The intervening A run is 3 words (above max_island_words=2), so it survives.
     """
     pairs = [
         _wp("alpha", 0.0, 0.5, "A"),

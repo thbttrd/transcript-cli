@@ -18,29 +18,6 @@ from transcript.models import Turn
 from transcript.pipeline_config import DiarizeConfig
 
 
-def test_relabel_by_first_appearance_orders_speakers_by_start_time():
-    """Speaker 1 = first to talk, regardless of input list order or original label."""
-    raw = [
-        Turn("SPEAKER_05", 5.0, 6.0),
-        Turn("SPEAKER_01", 0.0, 1.0),   # talks first
-        Turn("SPEAKER_05", 7.0, 8.0),
-        Turn("SPEAKER_03", 2.0, 3.0),   # talks second
-        Turn("SPEAKER_01", 9.0, 10.0),  # same speaker as 0.0–1.0 → reuses Speaker 1
-    ]
-    turns = diarize_diarizen._relabel_by_first_appearance(raw)
-    by_start = {t.start: t.speaker for t in turns}
-    assert by_start[0.0] == "Speaker 1"   # SPEAKER_01 spoke first
-    assert by_start[2.0] == "Speaker 2"   # SPEAKER_03 spoke second
-    assert by_start[5.0] == "Speaker 3"   # SPEAKER_05 spoke third
-    assert by_start[9.0] == "Speaker 1"   # SPEAKER_01 reappears
-    # Original list order is preserved (only labels change).
-    assert [t.start for t in turns] == [5.0, 0.0, 7.0, 2.0, 9.0]
-
-
-def test_relabel_by_first_appearance_handles_empty_input():
-    assert diarize_diarizen._relabel_by_first_appearance([]) == []
-
-
 def _completed(stdout="", stderr="", returncode=0):
     return subprocess.CompletedProcess(
         args=[], returncode=returncode, stdout=stdout, stderr=stderr

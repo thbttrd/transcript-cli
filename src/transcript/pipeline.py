@@ -16,6 +16,14 @@ _DIARIZE_BACKENDS = {
 }
 
 
+def _get_diarize_backend(name: str):
+    if name not in _DIARIZE_BACKENDS:
+        raise ValueError(
+            f"unknown diarizer: {name!r} (expected one of {list(_DIARIZE_BACKENDS)})"
+        )
+    return _DIARIZE_BACKENDS[name]
+
+
 def run(
     *,
     audio_path: Path,
@@ -30,7 +38,7 @@ def run(
     progress.done("preparing audio")
 
     is_temp_wav = wav != audio_path
-    diar_module = _DIARIZE_BACKENDS[config.diarize.backend]
+    diar_module = _get_diarize_backend(config.diarize.backend)
     try:
         if with_diarization:
             progress.step("transcribing + diarizing (parallel)")
