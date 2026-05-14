@@ -147,10 +147,10 @@ def test_pipeline_dispatches_to_diarizen_when_backend_configured(tmp_path, mocke
     assert "DiariZen" in meta.diarizer
 
 
-def test_pipeline_raises_keyerror_for_unknown_backend(tmp_path, mocker):
+def test_pipeline_raises_valueerror_for_unknown_backend(tmp_path, mocker):
     wav = _setup_mocks(mocker, tmp_path)
     cfg = PipelineConfig(diarize=DiarizeConfig(backend="bogus"))  # type: ignore[arg-type]
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="unknown diarizer"):
         pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
 
 

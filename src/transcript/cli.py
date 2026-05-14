@@ -49,7 +49,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default="sortformer",
         help=(
             "Diarization backend (default: sortformer / NeMo Streaming Sortformer 4spk-v2.1; "
-            "diarizen = BUT-FIT WavLM-Large s80-md, requires --extra diarizen)."
+            "diarizen = BUT-FIT WavLM-Large s80-md, runs in an isolated uv env via "
+            "scripts/diarize_diarizen.py — requires `uv` on PATH)."
         ),
     )
     p.add_argument("--speakers", type=int, default=None, help="Fix speaker count when known")

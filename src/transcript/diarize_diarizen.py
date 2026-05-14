@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from transcript import diarize_common
 from transcript.models import Turn
 
 if TYPE_CHECKING:
@@ -22,29 +23,12 @@ _log = logging.getLogger(__name__)
 
 DIARIZER_LABEL = "DiariZen WavLM-Large s80-md (BUT-FIT)"
 
-# Resolve scripts/diarize_diarizen.py relative to this file: project_root/scripts/...
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _SCRIPT = _PROJECT_ROOT / "scripts" / "diarize_diarizen.py"
 
 
 class DiariZenError(RuntimeError):
     """User-facing DiariZen error."""
-
-
-def _relabel_by_first_appearance(turns: list[Turn]) -> list[Turn]:
-    """Renumber so 'Speaker 1' is whoever talks first, matching Sortformer's convention.
-
-    DiariZen returns pyannote-style labels (e.g. "SPEAKER_00", "SPEAKER_01") assigned
-    arbitrarily by its clustering step. The merge stage downstream and side-by-side
-    comparison against Sortformer both rely on "Speaker N == Nth person to talk".
-    """
-    if not turns:
-        return turns
-    label_map: dict[str, str] = {}
-    for t in sorted(turns, key=lambda t: t.start):
-        if t.speaker not in label_map:
-            label_map[t.speaker] = f"Speaker {len(label_map) + 1}"
-    return [Turn(speaker=label_map[t.speaker], start=t.start, end=t.end) for t in turns]
 
 
 def run(wav_path: Path, *, config: "DiarizeConfig") -> list[Turn]:
@@ -83,15 +67,11 @@ def run(wav_path: Path, *, config: "DiarizeConfig") -> list[Turn]:
         Turn(speaker=str(t["speaker"]), start=float(t["start"]), end=float(t["end"]))
         for t in raw_turns
     ]
-    turns = _relabel_by_first_appearance(turns)
-
-    if config.num_speakers is not None:
-        keep = {f"Speaker {i + 1}" for i in range(config.num_speakers)}
-        turns = [t for t in turns if t.speaker in keep]
-
-    if not turns:
-        _log.warning(
-            "DiariZen returned no turns for %s — every word will be labelled Unknown",
-            wav_path,
-        )
-    return turns
+    turns = diarize_common.relabel_by_first_appearance(turns)
+    return diarize_common.filter_and_warn(
+        turns,
+        num_speakers=config.num_speakers,
+        backend_label="DiariZen",
+        wav_path=wav_path,
+        log=_log,
+    )

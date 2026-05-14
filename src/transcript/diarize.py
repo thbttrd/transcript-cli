@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from transcript import diarize_common
 from transcript.models import Turn
 
 if TYPE_CHECKING:
@@ -79,17 +80,6 @@ def _load_model(preset: str = "very_high_lat"):
     return m
 
 
-def _relabel(raw_labels: list[tuple[float, float, str]]) -> list[Turn]:
-    """Convert raw (start, end, label) tuples into Turns with stable Speaker N labels."""
-    label_map: dict[str, str] = {}
-    turns: list[Turn] = []
-    for start, end, label in raw_labels:
-        if label not in label_map:
-            label_map[label] = f"Speaker {len(label_map) + 1}"
-        turns.append(Turn(speaker=label_map[label], start=start, end=end))
-    return turns
-
-
 def _parse_sortformer_segments(segments: list[str]) -> list[tuple[float, float, str]]:
     """Parse Sortformer outputs ("start end speaker_id") into tuples."""
     out: list[tuple[float, float, str]] = []
@@ -117,16 +107,12 @@ def run(wav_path: Path, *, config: "DiarizeConfig") -> list[Turn]:
     raw_lines = results[0] if results else []
 
     raw = _parse_sortformer_segments(raw_lines)
-    turns = _relabel(raw)
-    if config.num_speakers is not None:
-        keep = {f"Speaker {i + 1}" for i in range(config.num_speakers)}
-        turns = [t for t in turns if t.speaker in keep]
-    if not turns:
-        # No segments means every downstream word will be labelled "Unknown".
-        # The model can legitimately return nothing for silence, but on a real
-        # recording this is almost always a degenerate failure worth surfacing.
-        _log.warning(
-            "Sortformer returned no turns for %s — every word will be labelled Unknown",
-            wav_path,
-        )
-    return turns
+    turns = [Turn(speaker=label, start=s, end=e) for s, e, label in raw]
+    turns = diarize_common.relabel_by_first_appearance(turns)
+    return diarize_common.filter_and_warn(
+        turns,
+        num_speakers=config.num_speakers,
+        backend_label="Sortformer",
+        wav_path=wav_path,
+        log=_log,
+    )
