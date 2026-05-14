@@ -1,3 +1,5 @@
+import pytest
+
 from transcript import pipeline
 from transcript.models import Turn, Word
 from transcript.pipeline_config import (
@@ -120,3 +122,32 @@ def test_pipeline_cleans_up_temp_wav(tmp_path, mocker):
     assert prepared.exists()
     pipeline.run(audio_path=wav, config=PipelineConfig(), with_diarization=True)
     assert not prepared.exists()
+
+
+def test_pipeline_dispatches_to_sortformer_by_default(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    diarizen_spy = mocker.patch("transcript.pipeline.diarize_diarizen.run")
+    _, meta = pipeline.run(audio_path=wav, config=PipelineConfig(), with_diarization=True)
+    diarizen_spy.assert_not_called()
+    assert "Sortformer" in meta.diarizer
+
+
+def test_pipeline_dispatches_to_diarizen_when_backend_configured(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    diarizen_spy = mocker.patch(
+        "transcript.pipeline.diarize_diarizen.run",
+        return_value=[Turn("Speaker 1", 0.0, 1.5), Turn("Speaker 2", 1.5, 3.0)],
+    )
+    sortformer_spy = mocker.patch("transcript.pipeline.diarize.run")
+    cfg = PipelineConfig(diarize=DiarizeConfig(backend="diarizen"))
+    _, meta = pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
+    diarizen_spy.assert_called_once()
+    sortformer_spy.assert_not_called()
+    assert "DiariZen" in meta.diarizer
+
+
+def test_pipeline_raises_keyerror_for_unknown_backend(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    cfg = PipelineConfig(diarize=DiarizeConfig(backend="bogus"))  # type: ignore[arg-type]
+    with pytest.raises(KeyError):
+        pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
