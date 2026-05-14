@@ -151,3 +151,66 @@ def test_cli_builds_pipeline_config_from_args(tmp_path, mocker):
     assert cfg.diarize.num_speakers == 2
     assert cfg.align.enabled is False
     assert cfg.llm_fix.enabled is True
+
+
+def _stub_pipeline_run(mocker):
+    """Return a spy on cli.pipeline.run that returns one trivial utterance.
+
+    Most CLI flag tests just need to assert what cfg was constructed, not what
+    came out of the pipeline.
+    """
+    from transcript.models import Meta, Utterance
+    return mocker.patch(
+        "transcript.cli.pipeline.run",
+        return_value=(
+            [Utterance("Speaker 1", 0.0, 1.0, "hi")],
+            Meta("in.m4a", 1.0, "large-v3", "fr", 1, None),
+        ),
+    )
+
+
+def test_main_diarizer_defaults_to_sortformer(tmp_path, mocker):
+    f = tmp_path / "v.m4a"
+    f.write_bytes(b"")
+    spy = _stub_pipeline_run(mocker)
+    cli.main([str(f)])
+    assert spy.call_args.kwargs["config"].diarize.backend == "sortformer"
+
+
+def test_main_diarizer_flag_propagates_to_diarize_config(tmp_path, mocker):
+    f = tmp_path / "v.m4a"
+    f.write_bytes(b"")
+    spy = _stub_pipeline_run(mocker)
+    cli.main([str(f), "--diarizer", "diarizen"])
+    assert spy.call_args.kwargs["config"].diarize.backend == "diarizen"
+
+
+def test_main_whisper_fallback_flag_disables_no_fallback(tmp_path, mocker):
+    """--whisper-fallback lets Whisper retry → TranscribeConfig.no_fallback=False."""
+    f = tmp_path / "v.m4a"
+    f.write_bytes(b"")
+    spy = _stub_pipeline_run(mocker)
+    cli.main([str(f), "--whisper-fallback"])
+    assert spy.call_args.kwargs["config"].transcribe.no_fallback is False
+
+
+def test_main_no_whisper_fallback_flag_enables_no_fallback(tmp_path, mocker):
+    """--no-whisper-fallback forbids retry → TranscribeConfig.no_fallback=True."""
+    f = tmp_path / "v.m4a"
+    f.write_bytes(b"")
+    spy = _stub_pipeline_run(mocker)
+    cli.main([str(f), "--no-whisper-fallback"])
+    assert spy.call_args.kwargs["config"].transcribe.no_fallback is True
+
+
+def test_main_whisper_fallback_unspecified_tracks_dataclass_default(tmp_path, mocker):
+    """Neither --whisper-fallback nor --no-whisper-fallback → CLI doesn't override default."""
+    from transcript.pipeline_config import TranscribeConfig
+
+    f = tmp_path / "v.m4a"
+    f.write_bytes(b"")
+    spy = _stub_pipeline_run(mocker)
+    cli.main([str(f)])
+    cfg_value = spy.call_args.kwargs["config"].transcribe.no_fallback
+    default_value = TranscribeConfig.__dataclass_fields__["no_fallback"].default
+    assert cfg_value == default_value
