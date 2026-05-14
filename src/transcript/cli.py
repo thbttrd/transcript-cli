@@ -43,6 +43,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Whisper model (default: large-v3)",
     )
     p.add_argument("--no-diarize", action="store_true", help="Skip speaker labelling")
+    p.add_argument(
+        "--diarizer",
+        choices=["sortformer", "diarizen"],
+        default="sortformer",
+        help=(
+            "Diarization backend (default: sortformer / NeMo Streaming Sortformer 4spk-v2.1; "
+            "diarizen = BUT-FIT WavLM-Large s80-md, requires --extra diarizen)."
+        ),
+    )
     p.add_argument("--speakers", type=int, default=None, help="Fix speaker count when known")
     p.add_argument(
         "--no-align",
@@ -53,6 +62,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--llm-fix",
         action="store_true",
         help="Opt in to local-LLM speaker-label cleanup via Ollama (gemma4:e4b). Off by default — alignment usually obsoletes it.",
+    )
+    p.add_argument(
+        "--whisper-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Override TranscribeConfig.no_fallback. --whisper-fallback lets Whisper retry "
+            "low-confidence segments at higher temperature (no_fallback=False); "
+            "--no-whisper-fallback disables retries (no_fallback=True). "
+            "Default: track the pipeline_config default."
+        ),
     )
     p.add_argument("-v", "--verbose", action="store_true", help="Show step-by-step progress")
     p.add_argument("-q", "--quiet", action="store_true", help="Suppress all progress")
@@ -86,9 +106,12 @@ def main(argv: list[str] | None = None) -> int:
             TranscribeConfig,
         )
 
+        tx_kwargs = {"model": args.model, "language": args.language}
+        if args.whisper_fallback is not None:
+            tx_kwargs["no_fallback"] = not args.whisper_fallback
         cfg = PipelineConfig(
-            transcribe=TranscribeConfig(model=args.model, language=args.language),
-            diarize=DiarizeConfig(num_speakers=args.speakers),
+            transcribe=TranscribeConfig(**tx_kwargs),
+            diarize=DiarizeConfig(num_speakers=args.speakers, backend=args.diarizer),
             align=AlignConfig(enabled=not args.no_align),
             llm_fix=LLMFixConfig(enabled=args.llm_fix),
         )

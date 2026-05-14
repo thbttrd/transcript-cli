@@ -15,7 +15,7 @@ class TranscribeConfig:
     model: str = "large-v3"
     language: str | None = None
     temperature: float = 0.0
-    no_fallback: bool = False
+    no_fallback: bool = True
     suppress_nst: bool = True
 
 
@@ -23,6 +23,7 @@ class TranscribeConfig:
 class DiarizeConfig:
     streaming_preset: Literal["very_high_lat", "low_lat"] = "very_high_lat"
     num_speakers: int | None = None
+    backend: Literal["sortformer", "diarizen"] = "sortformer"
 
 
 @dataclass(frozen=True)
