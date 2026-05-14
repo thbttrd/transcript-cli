@@ -6,6 +6,7 @@ from transcript.pipeline_config import (
     AlignConfig,
     DiarizeConfig,
     LLMFixConfig,
+    MergeConfig,
     PipelineConfig,
     TranscribeConfig,
 )
@@ -151,3 +152,28 @@ def test_pipeline_raises_keyerror_for_unknown_backend(tmp_path, mocker):
     cfg = PipelineConfig(diarize=DiarizeConfig(backend="bogus"))  # type: ignore[arg-type]
     with pytest.raises(KeyError):
         pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
+
+
+def test_pipeline_applies_smoothing_when_enabled(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    spy = mocker.patch(
+        "transcript.pipeline.merge.smooth_speaker_islands", side_effect=lambda ws, **_: ws
+    )
+    pipeline.run(audio_path=wav, config=PipelineConfig(), with_diarization=True)
+    spy.assert_called_once()
+    assert spy.call_args.kwargs["max_island_words"] == 2
+
+
+def test_pipeline_skips_smoothing_when_disabled(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    spy = mocker.patch("transcript.pipeline.merge.smooth_speaker_islands")
+    cfg = PipelineConfig(merge=MergeConfig(smooth_islands=False))
+    pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
+    spy.assert_not_called()
+
+
+def test_pipeline_skips_smoothing_when_no_diarization(tmp_path, mocker):
+    wav = _setup_mocks(mocker, tmp_path)
+    spy = mocker.patch("transcript.pipeline.merge.smooth_speaker_islands")
+    pipeline.run(audio_path=wav, config=PipelineConfig(), with_diarization=False)
+    spy.assert_not_called()

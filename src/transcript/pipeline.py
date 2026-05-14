@@ -52,6 +52,10 @@ def run(
             progress.done("aligning words")
 
         word_speakers = merge.assign_speakers(words, turns)
+        if with_diarization and config.merge.smooth_islands:
+            word_speakers = merge.smooth_speaker_islands(
+                word_speakers, max_island_words=config.merge.max_island_words
+            )
         if with_diarization and config.llm_fix.enabled and llm_fix.is_available():
             progress.step("LLM cleanup")
             word_speakers = llm_fix.apply(
