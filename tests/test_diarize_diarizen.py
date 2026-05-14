@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from transcript import diarize_diarizen
+from transcript.diarize_common import DiarizeError
 from transcript.models import Turn
 from transcript.pipeline_config import DiarizeConfig
 
@@ -51,6 +52,12 @@ def test_run_invokes_uv_run_script_with_wav_path(mocker):
     assert argv[1:3] == ["run", "--script"]
     assert argv[3].endswith("scripts/diarize_diarizen.py")
     assert argv[4] == "/some/audio.wav"
+    # Lock in the decode-safety + error-propagation kwargs.
+    kwargs = spy.call_args.kwargs
+    assert kwargs["capture_output"] is True
+    assert kwargs["check"] is True
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["errors"] == "replace"
 
 
 def test_run_filters_by_num_speakers(mocker):
@@ -105,13 +112,42 @@ def test_run_raises_when_uv_not_on_path(mocker):
         diarize_diarizen.run(Path("/fake.wav"), config=DiarizeConfig())
 
 
-def test_run_raises_when_runner_script_missing(monkeypatch):
+def test_run_raises_when_runner_script_missing(monkeypatch, mocker):
+    # Defensive: also mock subprocess.run so a regression that removed the
+    # early-exists check wouldn't silently shell out to uv during the test.
+    spy = mocker.patch("transcript.diarize_diarizen.subprocess.run")
     monkeypatch.setattr(diarize_diarizen, "_SCRIPT", Path("/nope/diarize_diarizen.py"))
     with pytest.raises(diarize_diarizen.DiariZenError, match="not found"):
         diarize_diarizen.run(Path("/fake.wav"), config=DiarizeConfig())
+    spy.assert_not_called()
 
 
 def test_run_rejects_non_diarizeconfig(mocker):
     mocker.patch("transcript.diarize_diarizen.subprocess.run")
     with pytest.raises(TypeError, match="DiarizeConfig"):
         diarize_diarizen.run(Path("/fake.wav"), config="not a config")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "bad_payload",
+    [
+        '[{"start": 0.0, "end": 1.0}]',                       # missing 'speaker'
+        '[{"speaker": "A", "end": 1.0}]',                     # missing 'start'
+        '[{"speaker": "A", "start": "oops", "end": 1.0}]',    # non-numeric start
+        '{"turns": []}',                                      # wrong top-level shape
+        "null",                                               # not iterable
+    ],
+)
+def test_run_raises_on_malformed_turn_record(mocker, bad_payload):
+    mocker.patch(
+        "transcript.diarize_diarizen.subprocess.run",
+        return_value=_completed(stdout=bad_payload),
+    )
+    with pytest.raises(diarize_diarizen.DiariZenError, match="malformed turn record"):
+        diarize_diarizen.run(Path("/fake.wav"), config=DiarizeConfig())
+
+
+def test_diarizen_error_is_a_diarize_error():
+    """CLI catches DiarizeError; DiariZenError must be a subclass so DiariZen
+    failures exit through the same code path with the same prefix."""
+    assert issubclass(diarize_diarizen.DiariZenError, DiarizeError)

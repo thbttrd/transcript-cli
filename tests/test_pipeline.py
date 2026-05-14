@@ -154,13 +154,19 @@ def test_pipeline_raises_valueerror_for_unknown_backend(tmp_path, mocker):
         pipeline.run(audio_path=wav, config=cfg, with_diarization=True)
 
 
-def test_pipeline_applies_smoothing_when_enabled(tmp_path, mocker):
+def test_pipeline_applies_smoothing_to_assigned_word_speakers(tmp_path, mocker):
+    """Smoothing must consume assign_speakers' output (post-merge), not raw words.
+    A refactor that smoothed pre-assignment would pass a `spy.assert_called_once`
+    check but break the algorithm — assert the input shape explicitly."""
     wav = _setup_mocks(mocker, tmp_path)
+    sentinel = [(Word(" hi", 0.0, 1.0), "Speaker 1"), (Word(" there", 2.0, 3.0), "Speaker 2")]
+    mocker.patch("transcript.pipeline.merge.assign_speakers", return_value=sentinel)
     spy = mocker.patch(
         "transcript.pipeline.merge.smooth_speaker_islands", side_effect=lambda ws, **_: ws
     )
     pipeline.run(audio_path=wav, config=PipelineConfig(), with_diarization=True)
     spy.assert_called_once()
+    assert spy.call_args.args[0] is sentinel
     assert spy.call_args.kwargs["max_island_words"] == 2
 
 

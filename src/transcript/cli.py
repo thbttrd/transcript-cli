@@ -84,10 +84,8 @@ def _build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "Override TranscribeConfig.no_fallback. --whisper-fallback lets Whisper retry "
-            "low-confidence segments at higher temperature (no_fallback=False); "
-            "--no-whisper-fallback disables retries (no_fallback=True). "
-            "Default: track the pipeline_config default."
+            "Allow Whisper to retry low-confidence segments at higher temperature. "
+            "Disabled by default."
         ),
     )
     p.add_argument("-v", "--verbose", action="store_true", help="Show step-by-step progress")

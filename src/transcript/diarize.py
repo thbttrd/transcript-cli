@@ -3,7 +3,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from transcript import diarize_common
+from transcript.diarize_common import DiarizeError  # re-export
 from transcript.models import Turn
+
+__all__ = ["DIARIZER_LABEL", "DiarizeError", "run"]
 
 if TYPE_CHECKING:
     from transcript.pipeline_config import DiarizeConfig
@@ -41,10 +44,6 @@ _STREAMING_PRESETS: dict[str, dict[str, int]] = {
         "spkcache_len": 188,
     },
 }
-
-
-class DiarizeError(RuntimeError):
-    """User-facing diarization error."""
 
 
 def _streaming_params(preset: str) -> dict[str, int]:

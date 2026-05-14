@@ -174,6 +174,35 @@ def test_smooth_islands_handles_alternating_micro_runs_in_single_pass():
     assert [s for _, s in merge.smooth_speaker_islands(pairs)] == ["A"] * 10
 
 
+def test_smooth_islands_flips_island_of_length_exactly_max():
+    """`>` (not `>=`) at the cap boundary: a 3-word island flips when max=3."""
+    pairs = [
+        _wp("a", 0.0, 0.5, "A"),
+        _wp("b", 0.5, 1.0, "B"),
+        _wp("c", 1.0, 1.5, "B"),
+        _wp("d", 1.5, 2.0, "B"),   # 3-word island, equals max
+        _wp("e", 2.0, 2.5, "A"),
+    ]
+    assert [s for _, s in merge.smooth_speaker_islands(pairs, max_island_words=3)] == [
+        "A", "A", "A", "A", "A",
+    ]
+
+
+def test_smooth_islands_decides_flips_against_original_runs_not_cascading():
+    """A,B,A,B,A with every run = 1 word: the middle A's ORIGINAL neighbours
+    are both B, so the no-cascading rule flips it to B even though after the
+    first pass its neighbours are now A. The B islands flip to A in parallel.
+    Result: A,A,B,A,A — never the all-A a cascading impl would produce."""
+    pairs = [
+        _wp("a", 0.0, 0.5, "A"),
+        _wp("b", 0.5, 1.0, "B"),
+        _wp("c", 1.0, 1.5, "A"),
+        _wp("d", 1.5, 2.0, "B"),
+        _wp("e", 2.0, 2.5, "A"),
+    ]
+    assert [s for _, s in merge.smooth_speaker_islands(pairs)] == ["A", "A", "B", "A", "A"]
+
+
 def test_smooth_islands_does_not_flip_when_max_island_words_is_zero():
     pairs = [
         _wp("a", 0.0, 0.5, "A"),

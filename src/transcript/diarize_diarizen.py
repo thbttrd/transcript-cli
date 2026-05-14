@@ -1,11 +1,12 @@
 """DiariZen diarization backend, isolated via per-script uv env.
 
-DiariZen (BUTSpeechFIT/DiariZen) requires pyannote.audio 4.x, which requires
-torch>=2.7 — incompatible with this project's torch==2.6.0 pin (NeMo / whisper.cpp
-constraint). To run both in one process: we don't. The actual DiariZen call lives
-in `scripts/diarize_diarizen.py`, which carries its own PEP 723 inline deps and
-runs under a separate uv-managed env. We invoke it as a subprocess and parse JSON
-turns off its stdout. NC-licensed weights — personal use only.
+DiariZen ships a forked pyannote.audio 3.1.1 with private patches and pins
+torch 2.5.x + numpy <2 — incompatible with this project's torch==2.6.0 and
+numpy 1.26.4 NeMo / whisper.cpp constraints (numpy aligns, torch does not).
+To run both in one process: we don't. The actual DiariZen call lives in
+scripts/diarize_diarizen.py, which carries its own PEP 723 inline deps and
+runs under a separate uv-managed env. We invoke it as a subprocess and parse
+JSON turns off its stdout. NC-licensed weights — personal use only.
 """
 import json
 import logging
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from transcript import diarize_common
+from transcript.diarize_common import DiarizeError
 from transcript.models import Turn
 
 if TYPE_CHECKING:
@@ -27,8 +29,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _SCRIPT = _PROJECT_ROOT / "scripts" / "diarize_diarizen.py"
 
 
-class DiariZenError(RuntimeError):
-    """User-facing DiariZen error."""
+class DiariZenError(DiarizeError):
+    """User-facing DiariZen error. Subclasses DiarizeError so the CLI's
+    generic diarization handler catches both backends uniformly."""
 
 
 def run(wav_path: Path, *, config: "DiarizeConfig") -> list[Turn]:
@@ -43,7 +46,11 @@ def run(wav_path: Path, *, config: "DiarizeConfig") -> list[Turn]:
         proc = subprocess.run(
             ["uv", "run", "--script", str(_SCRIPT), str(wav_path)],
             capture_output=True,
-            text=True,
+            # errors="replace": HF/torch warnings can include non-UTF-8 bytes
+            # on weird locales; let those pass as replacement chars rather than
+            # crash subprocess.run before our error envelope can wrap them.
+            encoding="utf-8",
+            errors="replace",
             check=True,
         )
     except FileNotFoundError as e:
@@ -63,10 +70,15 @@ def run(wav_path: Path, *, config: "DiarizeConfig") -> list[Turn]:
             f"DiariZen subprocess produced non-JSON stdout: {proc.stdout[:200]!r}"
         ) from e
 
-    turns = [
-        Turn(speaker=str(t["speaker"]), start=float(t["start"]), end=float(t["end"]))
-        for t in raw_turns
-    ]
+    try:
+        turns = [
+            Turn(speaker=str(t["speaker"]), start=float(t["start"]), end=float(t["end"]))
+            for t in raw_turns
+        ]
+    except (KeyError, TypeError, ValueError) as e:
+        raise DiariZenError(
+            f"DiariZen subprocess produced malformed turn record: {e}"
+        ) from e
     turns = diarize_common.relabel_by_first_appearance(turns)
     return diarize_common.filter_and_warn(
         turns,
